@@ -1,0 +1,10 @@
+error[E0499]: cannot borrow `buffer` as mutable more than once at a time
+  --> tests/compile-fail/buffer_concurrent_access.rs:12:31
+   |
+9  |     let _future1 = ring.read(0, buffer.as_mut_slice());
+   |                                 ------ first mutable borrow occurs here
+...
+12 |     let _future2 = ring.write(1, buffer.as_mut_slice());
+   |                                  ^^^^^^ second mutable borrow occurs here
+13 | }
+   |  - first borrow might be used here, when `_future1` is dropped and runs the `Drop` code for type `ReadFuture`

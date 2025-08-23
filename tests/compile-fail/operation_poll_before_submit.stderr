@@ -1,0 +1,11 @@
+error[E0599]: no method named `id` found for struct `Operation<'_, '_, Building>` in the current scope
+  --> tests/compile-fail/operation_poll_before_submit.rs:10:25
+   |
+10 |     let _id = operation.id();
+   |                         ^^
+   |
+help: there is a method `fd` with a similar name, but with different arguments
+  --> src/operation/building.rs
+   |
+   |     pub fn fd(mut self, fd: RawFd) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

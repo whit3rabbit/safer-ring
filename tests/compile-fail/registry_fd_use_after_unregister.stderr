@@ -1,0 +1,11 @@
+error[E0382]: borrow of moved value: `registered_fd`
+  --> tests/compile-fail/registry_fd_use_after_unregister.rs:11:30
+   |
+5  |     let registered_fd = registry.register_fd(0).unwrap();
+   |         ------------- move occurs because `registered_fd` has type `RegisteredFd`, which does not implement the `Copy` trait
+...
+8  |     registry.unregister_fd(registered_fd).unwrap();
+   |                            ------------- value moved here
+...
+11 |     println!("FD index: {}", registered_fd.index()); //~ ERROR: borrow of moved value
+   |                              ^^^^^^^^^^^^^ value borrowed here after move

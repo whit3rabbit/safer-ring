@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "name": "Rust Code Refactor & Optimizer",
+  "description": "Monitors Rust files for size and quality issues, automatically refactoring files over 400 lines into smaller modules, removing AI comments, ensuring rust doc compliance, and optimizing code with explanatory comments",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "**/*.rs"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Analyze this Rust file. If it's above 400 lines, refactor it into smaller files/modules. Remove any AI-generated comments. Ensure all comments are rust doc compliant with proper escapes in examples. Apply Rust best practices and optimize the code. Add inline comments explaining the \"why\" behind optimizations and design decisions. Create new files as needed for the refactored modules."
+  }
+}

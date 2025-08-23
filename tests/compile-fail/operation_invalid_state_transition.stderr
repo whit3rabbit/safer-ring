@@ -1,0 +1,10 @@
+error[E0308]: mismatched types
+  --> tests/compile-fail/operation_invalid_state_transition.rs:10:80
+   |
+10 |     let _completed: Operation<'_, '_, safer_ring::operation::Completed<i32>> = operation;
+   |                     --------------------------------------------------------   ^^^^^^^^^ expected `Operation<'_, '_, Completed<i32>>`, found `Operation<'_, '_, Building>`
+   |                     |
+   |                     expected due to this
+   |
+   = note: expected struct `Operation<'_, '_, Completed<i32>>`
+              found struct `Operation<'_, '_, Building>`

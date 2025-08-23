@@ -1,0 +1,13 @@
+error[E0624]: method `submit_with_id` is private
+  --> tests/compile-fail/operation_modify_after_submit.rs:14:31
+   |
+14 |       let submitted = operation.submit_with_id(1).unwrap();
+   |                                 ^^^^^^^^^^^^^^ private method
+   |
+  ::: src/operation/building.rs
+   |
+   | /     pub(crate) fn submit_with_id(
+   | |         self,
+   | |         id: u64,
+   | |     ) -> Result<Operation<'ring, 'buf, Submitted>, &'static str> {
+   | |________________________________________________________________- private method defined here

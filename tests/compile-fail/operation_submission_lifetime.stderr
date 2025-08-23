@@ -1,0 +1,15 @@
+error[E0597]: `buffer` does not live long enough
+  --> tests/compile-fail/operation_submission_lifetime.rs:14:38
+   |
+13 |         let mut buffer = vec![0u8; 1024];
+   |             ---------- binding `buffer` declared here
+14 |         let pinned_buffer = Pin::new(buffer.as_mut_slice());
+   |                                      ^^^^^^ borrowed value does not live long enough
+...
+22 |     } // buffer is dropped here but operation is still tracked by ring
+   |     - `buffer` dropped here while still borrowed
+...
+25 | }
+   | - borrow might be used here, when `ring` is dropped and runs the `Drop` code for type `Ring`
+   |
+   = note: values in a scope are dropped in the opposite order they are defined

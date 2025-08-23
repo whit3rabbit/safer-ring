@@ -1,0 +1,60 @@
+[package]
+name = "safer-ring"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A safe Rust wrapper around io_uring with zero-cost abstractions"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/safer-ring"
+keywords = ["io-uring", "async", "io", "performance", "safety"]
+categories = ["asynchronous", "network-programming", "filesystem"]
+
+[dependencies]
+pin-project = "1.1"
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "net", "fs", "io-util", "macros"] }
+static_assertions = "1.1"
+libc = "0.2"
+
+# io-uring is only available on Linux
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = "0.7"
+
+# For non-Linux platforms, we'll provide stub implementations
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+# No io-uring dependency on non-Linux platforms
+
+[dev-dependencies]
+# Testing frameworks
+tokio-test = "0.4"
+proptest = "1.4"
+loom = "0.7"
+tempfile = "3.8"
+futures = "0.3"
+
+# For compile-fail tests
+trybuild = "1.0"
+
+# For compile-time assertions
+static_assertions = "1.1"
+
+[features]
+default = []
+# Enable unstable features for advanced io_uring operations
+unstable = []
+
+[[example]]
+name = "echo_server"
+path = "examples/echo_server.rs"
+
+[[example]]
+name = "file_copy"
+path = "examples/file_copy.rs"
+
+[[example]]
+name = "async_demo"
+path = "examples/async_demo.rs"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

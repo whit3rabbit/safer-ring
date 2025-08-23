@@ -1,0 +1,10 @@
+error[E0597]: `pool` does not live long enough
+  --> tests/compile-fail/pooled_buffer_outlive_pool.rs:8:9
+   |
+8  |         pool.get().unwrap() // This buffer should not be able to outlive the pool
+   |         ^^^^ borrowed value does not live long enough
+9  |     };
+   |     - `pool` dropped here while still borrowed
+...
+12 |     let _future = ring.read(0, buffer.as_mut_slice());
+   |                                ------ borrow later used here

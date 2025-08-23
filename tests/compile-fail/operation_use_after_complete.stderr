@@ -1,0 +1,5 @@
+error[E0599]: no method named `submit_with_id` found for struct `Operation<_, _, Completed<_>>` in the current scope
+  --> tests/compile-fail/operation_use_after_complete.rs:16:29
+   |
+16 |     let _resubmit = completed.submit_with_id(2);
+   |                               ^^^^^^^^^^^^^^ method not found in `Operation<_, _, Completed<_>>`

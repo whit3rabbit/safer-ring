@@ -1,0 +1,10 @@
+error[E0597]: `ring` does not live long enough
+  --> tests/compile-fail/ring_drop_with_operations.rs:9:22
+   |
+9  |         let _future = ring.read(0, buffer.as_mut_slice());
+   |                       ^^^^ borrowed value does not live long enough
+10 |         // Ring should not be droppable here with operation in flight
+11 |     } // This should cause a compile error
+   |     - `ring` dropped here while still borrowed
+12 | }
+   | - borrow might be used here, when `_future` is dropped and runs the `Drop` code for type `ReadFuture`

@@ -1,0 +1,21 @@
+warning: unused imports: `Building` and `Submitted`
+ --> tests/compile-fail/operation_double_submit.rs:3:40
+  |
+3 | use safer_ring::operation::{Operation, Building, Submitted};
+  |                                        ^^^^^^^^  ^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0624]: method `submit_with_id` is private
+  --> tests/compile-fail/operation_double_submit.rs:15:31
+   |
+15 |       let submitted = operation.submit_with_id(1).unwrap();
+   |                                 ^^^^^^^^^^^^^^ private method
+   |
+  ::: src/operation/building.rs
+   |
+   | /     pub(crate) fn submit_with_id(
+   | |         self,
+   | |         id: u64,
+   | |     ) -> Result<Operation<'ring, 'buf, Submitted>, &'static str> {
+   | |________________________________________________________________- private method defined here

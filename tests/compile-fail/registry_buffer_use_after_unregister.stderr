@@ -1,0 +1,11 @@
+error[E0382]: borrow of moved value: `registered_buffer`
+  --> tests/compile-fail/registry_buffer_use_after_unregister.rs:13:33
+   |
+7  |     let registered_buffer = registry.register_buffer(buffer).unwrap();
+   |         ----------------- move occurs because `registered_buffer` has type `RegisteredBuffer`, which does not implement the `Copy` trait
+...
+10 |     let _returned_buffer = registry.unregister_buffer(registered_buffer).unwrap();
+   |                                                       ----------------- value moved here
+...
+13 |     println!("Buffer size: {}", registered_buffer.size()); //~ ERROR: borrow of moved value
+   |                                 ^^^^^^^^^^^^^^^^^ value borrowed here after move
