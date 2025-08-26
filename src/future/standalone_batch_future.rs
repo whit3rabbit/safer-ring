@@ -257,7 +257,7 @@ impl StandaloneBatchFuture {
 impl Future for StandaloneBatchFuture {
     type Output = Result<BatchResult>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // This implementation cannot work because we don't have access to a Ring
         // The caller must use poll_with_ring instead
         let _ = cx;
@@ -272,10 +272,8 @@ impl Drop for StandaloneBatchFuture {
         self.cancel_all_remaining_operations();
 
         // Clean up wakers from the registry
-        for id_opt in &self.operation_ids {
-            if let Some(id) = id_opt {
-                self.waker_registry.remove_waker(*id);
-            }
+        for id in self.operation_ids.iter().flatten() {
+            self.waker_registry.remove_waker(*id);
         }
     }
 }

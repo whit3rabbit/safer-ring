@@ -184,7 +184,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// // This doesn't hold a mutable reference to Ring
     /// let mut batch_future = ring.submit_batch_standalone(batch)?;
-    /// 
+    ///
     /// // Can perform other operations on ring here
     /// // let other_result = ring.read(...).await?;
     ///

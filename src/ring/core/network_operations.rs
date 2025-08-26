@@ -97,7 +97,7 @@ impl<'ring> Ring<'ring> {
     /// - Data appropriate for the connected peer
     ///
     /// This library does **NOT** perform socket validation, connection verification,
-    /// data filtering, or access control. Using an invalid file descriptor or 
+    /// data filtering, or access control. Using an invalid file descriptor or
     /// sending unauthorized data may result in:
     /// - Data transmission to unintended recipients
     /// - Information disclosure or data leaks

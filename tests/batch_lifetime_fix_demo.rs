@@ -3,11 +3,11 @@
 //! This test demonstrates the specific issue that was mentioned in the original
 //! batch_operations.rs test file and shows that it's now resolved.
 
-use safer_ring::{Ring, Batch, Operation, PinnedBuffer, StandaloneBatchFuture};
+use safer_ring::{Batch, Operation, PinnedBuffer, Ring, StandaloneBatchFuture};
 use std::future::poll_fn;
 
 /// This test demonstrates the original lifetime problem and its solution.
-/// 
+///
 /// The original issue was that submit_batch() returned a BatchFuture that held
 /// a mutable reference to the Ring for its entire lifetime, making it impossible
 /// to compose with other operations on the same Ring.
@@ -22,7 +22,9 @@ async fn test_batch_lifetime_constraint_fix() {
     #[cfg(target_os = "linux")]
     {
         // This demonstrates the solution to the lifetime constraint problem
-        async fn demonstrate_fixed_api(ring: &mut Ring<'_>) -> Result<(), Box<dyn std::error::Error>> {
+        async fn demonstrate_fixed_api(
+            ring: &mut Ring<'_>,
+        ) -> Result<(), Box<dyn std::error::Error>> {
             let mut batch = Batch::new();
             let mut buffer1 = PinnedBuffer::with_capacity(1024);
             let mut buffer2 = PinnedBuffer::with_capacity(1024);
@@ -46,14 +48,15 @@ async fn test_batch_lifetime_constraint_fix() {
                 match batch_future.poll_with_ring(ring, cx) {
                     std::task::Poll::Ready(result) => {
                         println!("Batch completed: {:?}", result.is_ok());
-                        std::task::Poll::Ready(())  // End test gracefully
+                        std::task::Poll::Ready(()) // End test gracefully
                     }
                     std::task::Poll::Pending => {
                         println!("Batch pending (expected for stdin)");
-                        std::task::Poll::Ready(())  // End test gracefully  
+                        std::task::Poll::Ready(()) // End test gracefully
                     }
                 }
-            }).await;
+            })
+            .await;
 
             Ok(())
         }
@@ -61,13 +64,18 @@ async fn test_batch_lifetime_constraint_fix() {
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
 
         match demonstrate_fixed_api(&mut ring).await {
-            Ok(()) => println!("✅ Successfully demonstrated the fix for batch lifetime constraints"),
+            Ok(()) => {
+                println!("✅ Successfully demonstrated the fix for batch lifetime constraints")
+            }
             Err(e) => println!("Test completed with expected error: {}", e),
         }
     }
@@ -87,7 +95,10 @@ async fn test_improved_batch_ergonomics() {
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
@@ -95,34 +106,45 @@ async fn test_improved_batch_ergonomics() {
         // Create multiple batches that can coexist
         let mut batch1 = Batch::new();
         let mut batch2 = Batch::new();
-        
+
         let mut buffer1 = PinnedBuffer::with_capacity(1024);
         let mut buffer2 = PinnedBuffer::with_capacity(1024);
         let mut buffer3 = PinnedBuffer::with_capacity(1024);
         let mut buffer4 = PinnedBuffer::with_capacity(1024);
 
-        if let Ok(_) = batch1.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice())) {
-            if let Ok(_) = batch1.add_operation(Operation::read().fd(0).buffer(buffer2.as_mut_slice())) {
-                if let Ok(_) = batch2.add_operation(Operation::read().fd(0).buffer(buffer3.as_mut_slice())) {
-                    if let Ok(_) = batch2.add_operation(Operation::read().fd(0).buffer(buffer4.as_mut_slice())) {
+        if let Ok(_) = batch1.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))
+        {
+            if let Ok(_) =
+                batch1.add_operation(Operation::read().fd(0).buffer(buffer2.as_mut_slice()))
+            {
+                if let Ok(_) =
+                    batch2.add_operation(Operation::read().fd(0).buffer(buffer3.as_mut_slice()))
+                {
+                    if let Ok(_) =
+                        batch2.add_operation(Operation::read().fd(0).buffer(buffer4.as_mut_slice()))
+                    {
                         // Submit both batches - this demonstrates improved ergonomics
-                        let _future1: StandaloneBatchFuture = ring.submit_batch_standalone(batch1)
+                        let _future1: StandaloneBatchFuture = ring
+                            .submit_batch_standalone(batch1)
                             .unwrap_or_else(|_| panic!("Should be able to submit first batch"));
-                            
-                        let _future2: StandaloneBatchFuture = ring.submit_batch_standalone(batch2)
+
+                        let _future2: StandaloneBatchFuture = ring
+                            .submit_batch_standalone(batch2)
                             .unwrap_or_else(|_| panic!("Should be able to submit second batch"));
 
                         // We can even submit individual operations while batches are in flight
                         let mut single_buffer = PinnedBuffer::with_capacity(256);
                         let _single_op = ring.read(0, single_buffer.as_mut_slice());
 
-                        println!("✅ Successfully demonstrated improved batch operation ergonomics");
+                        println!(
+                            "✅ Successfully demonstrated improved batch operation ergonomics"
+                        );
                         return;
                     }
                 }
             }
         }
-        
+
         println!("Could not set up batches for ergonomics test");
     }
 }
@@ -138,10 +160,14 @@ async fn test_batch_performance_characteristics() {
 
     #[cfg(target_os = "linux")]
     {
-        let mut ring = match Ring::new(128) {  // Larger ring for batch operations
+        let mut ring = match Ring::new(128) {
+            // Larger ring for batch operations
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
@@ -153,7 +179,9 @@ async fn test_batch_performance_characteristics() {
         // Create a batch with multiple operations
         for _ in 0..BATCH_SIZE {
             let mut buffer = PinnedBuffer::with_capacity(1024);
-            if let Ok(_) = batch.add_operation(Operation::read().fd(0).buffer(buffer.as_mut_slice())) {
+            if let Ok(_) =
+                batch.add_operation(Operation::read().fd(0).buffer(buffer.as_mut_slice()))
+            {
                 buffers.push(buffer);
             } else {
                 println!("Could not add operation to batch");
@@ -175,12 +203,11 @@ async fn test_batch_performance_characteristics() {
 
         // Poll once to demonstrate the polling performance
         let poll_start = std::time::Instant::now();
-        let _result = poll_fn(|cx| {
-            match batch_future.poll_with_ring(&mut ring, cx) {
-                std::task::Poll::Ready(_) => std::task::Poll::Ready("completed"),
-                std::task::Poll::Pending => std::task::Poll::Ready("pending"),
-            }
-        }).await;
+        let _result = poll_fn(|cx| match batch_future.poll_with_ring(&mut ring, cx) {
+            std::task::Poll::Ready(_) => std::task::Poll::Ready("completed"),
+            std::task::Poll::Pending => std::task::Poll::Ready("pending"),
+        })
+        .await;
         let poll_time = poll_start.elapsed();
 
         println!(

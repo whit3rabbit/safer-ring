@@ -14,6 +14,7 @@ use crate::operation::OperationType;
 
 /// Pending operation in the epoll backend
 #[derive(Debug)]
+#[allow(dead_code)] // Fields used only in actual epoll implementation, not stub
 struct PendingOperation {
     op_type: OperationType,
     fd: RawFd,
@@ -24,6 +25,7 @@ struct PendingOperation {
 }
 
 /// epoll-based backend implementation for fallback support
+#[allow(dead_code)] // Fields used only in actual epoll implementation, not stub
 pub struct EpollBackend {
     epoll_fd: RawFd,
     pending_operations: HashMap<u64, PendingOperation>,

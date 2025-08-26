@@ -16,14 +16,12 @@ use safer_ring::{Batch, BatchConfig, Operation, PinnedBuffer, Ring};
 #[allow(unused_imports)]
 use std::pin::Pin;
 #[allow(unused_imports)]
-use tokio;
 
 /// Check if we should skip io_uring specific functionality tests
 /// Returns true on non-Linux platforms where io_uring is not available
 fn should_skip_io_uring_tests() -> bool {
     cfg!(not(target_os = "linux"))
 }
-
 
 #[tokio::test]
 async fn test_empty_batch_error() {
@@ -56,11 +54,14 @@ async fn test_single_operation_batch() {
     }
 
     let mut buffer = PinnedBuffer::with_capacity(1024);
-    
+
     let mut ring = match Ring::new(32) {
         Ok(r) => r,
         Err(e) => {
-            println!("Could not create ring (io_uring may not be available): {}", e);
+            println!(
+                "Could not create ring (io_uring may not be available): {}",
+                e
+            );
             return;
         }
     };
@@ -82,9 +83,7 @@ async fn test_single_operation_batch() {
     };
 
     // Poll the batch future using the new API
-    let result = std::future::poll_fn(|cx| {
-        batch_future.poll_with_ring(&mut ring, cx)
-    }).await;
+    let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
     // On non-Linux platforms, this should succeed with simulated results
     #[cfg(not(target_os = "linux"))]
@@ -119,7 +118,10 @@ async fn test_multiple_operations_batch() {
     let mut ring = match Ring::new(32) {
         Ok(r) => r,
         Err(e) => {
-            println!("Could not create ring (io_uring may not be available): {}", e);
+            println!(
+                "Could not create ring (io_uring may not be available): {}",
+                e
+            );
             return;
         }
     };
@@ -143,9 +145,7 @@ async fn test_multiple_operations_batch() {
         }
     };
 
-    let result = std::future::poll_fn(|cx| {
-        batch_future.poll_with_ring(&mut ring, cx)
-    }).await;
+    let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
     // On non-Linux platforms, should succeed
     #[cfg(not(target_os = "linux"))]
@@ -187,9 +187,7 @@ async fn test_batch_with_dependencies() {
         batch.add_dependency(idx2, idx1)?;
 
         let mut batch_future = ring.submit_batch_standalone(batch)?;
-        let result = std::future::poll_fn(|cx| {
-            batch_future.poll_with_ring(&mut ring, cx)
-        }).await;
+        let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
         #[cfg(not(target_os = "linux"))]
         {
@@ -233,9 +231,7 @@ async fn test_batch_with_config() {
         };
 
         let mut batch_future = ring.submit_batch_standalone_with_config(batch, config)?;
-        let result = std::future::poll_fn(|cx| {
-            batch_future.poll_with_ring(&mut ring, cx)
-        }).await;
+        let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
         // Should complete even if operation fails
         #[cfg(not(target_os = "linux"))]
@@ -267,7 +263,7 @@ async fn test_batch_error_conditions() {
     let test_future = async {
         let mut buffer1 = PinnedBuffer::with_capacity(512);
         let mut buffer2 = PinnedBuffer::with_capacity(512);
-        let mut ring = Ring::new(32)?;
+        let _ring = Ring::new(32)?;
 
         let op1 = Operation::read().fd(0).buffer(buffer1.as_mut_slice());
         let op2 = Operation::read().fd(0).buffer(buffer2.as_mut_slice());
@@ -305,7 +301,10 @@ async fn test_large_batch() {
     let mut ring = match Ring::new(256) {
         Ok(r) => r,
         Err(e) => {
-            println!("Could not create ring (io_uring may not be available): {}", e);
+            println!(
+                "Could not create ring (io_uring may not be available): {}",
+                e
+            );
             return;
         }
     };
@@ -338,9 +337,7 @@ async fn test_large_batch() {
         }
     };
 
-    let result = std::future::poll_fn(|cx| {
-        batch_future.poll_with_ring(&mut ring, cx)
-    }).await;
+    let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
     #[cfg(not(target_os = "linux"))]
     {

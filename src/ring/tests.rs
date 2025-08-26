@@ -58,11 +58,11 @@ mod creation {
 }
 
 mod lifecycle {
-    use super::*;
 
     #[test]
     #[cfg(target_os = "linux")]
     fn empty_ring_drop() {
+        use super::Ring;
         let ring = Ring::new(32).unwrap();
         assert_eq!(ring.operations_in_flight(), 0);
         // Should drop without panic
@@ -373,11 +373,11 @@ mod completion_processing {
 }
 
 mod submission_lifetime_constraints {
-    use super::*;
 
     #[test]
     #[cfg(target_os = "linux")]
     fn buffer_outlives_ring_compiles() {
+        use super::Ring;
         use crate::operation::Operation;
         use std::pin::Pin;
 

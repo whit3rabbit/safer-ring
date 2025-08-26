@@ -223,7 +223,7 @@
 //!
 //! ### File Descriptor Responsibility
 //!
-//! **⚠️ CRITICAL SECURITY NOTICE**: This library accepts raw file descriptors (`RawFd`) 
+//! **⚠️ CRITICAL SECURITY NOTICE**: This library accepts raw file descriptors (`RawFd`)
 //! from user code and does **NOT** perform any validation, permission checks, or access
 //! control. The application is **entirely responsible** for ensuring file descriptor security.
 //!

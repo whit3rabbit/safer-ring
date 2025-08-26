@@ -1,10 +1,10 @@
 //! Backend-specific tests to verify that both io_uring and epoll backends work correctly.
 //!
-//! These tests ensure that the backend abstraction works properly and that 
+//! These tests ensure that the backend abstraction works properly and that
 //! the epoll fallback provides correct functionality when io_uring is unavailable.
 
-use safer_ring::backend::{detect_backend, Backend};
 use safer_ring::backend::epoll::EpollBackend;
+use safer_ring::backend::{detect_backend, Backend};
 use safer_ring::operation::OperationType;
 use std::io::{self, Read, Write};
 use std::os::unix::io::AsRawFd;
@@ -104,7 +104,11 @@ fn test_epoll_backend_basic_operations() {
         // Write some data to the pipe to make the read operation ready
         let test_data = b"Hello, epoll backend!";
         unsafe {
-            libc::write(write_fd, test_data.as_ptr() as *const libc::c_void, test_data.len());
+            libc::write(
+                write_fd,
+                test_data.as_ptr() as *const libc::c_void,
+                test_data.len(),
+            );
         }
 
         // Try to complete the operation
@@ -120,8 +124,12 @@ fn test_epoll_backend_basic_operations() {
             assert_eq!(completions.len(), 1);
             let (completed_user_data, io_result) = &completions[0];
             assert_eq!(*completed_user_data, user_data);
-            assert!(io_result.is_ok(), "I/O operation should succeed: {:?}", io_result);
-            
+            assert!(
+                io_result.is_ok(),
+                "I/O operation should succeed: {:?}",
+                io_result
+            );
+
             let bytes_read = io_result.as_ref().unwrap();
             assert!(*bytes_read > 0, "Should have read some bytes");
         }
@@ -158,7 +166,11 @@ fn test_epoll_backend_multiple_operations() {
                 buffer.len(),
                 i as u64,
             );
-            assert!(submit_result.is_ok(), "Submit operation {} should succeed", i);
+            assert!(
+                submit_result.is_ok(),
+                "Submit operation {} should succeed",
+                i
+            );
         }
 
         assert_eq!(backend.operations_in_flight(), 3);
@@ -177,7 +189,10 @@ fn test_epoll_backend_multiple_operations() {
 
         // Complete operations
         let completion_result = backend.wait_for_completion();
-        assert!(completion_result.is_ok(), "wait_for_completion should succeed");
+        assert!(
+            completion_result.is_ok(),
+            "wait_for_completion should succeed"
+        );
 
         // Clean up
         for (read_fd, write_fd) in pipes {
@@ -208,10 +223,7 @@ fn test_epoll_backend_error_handling() {
         );
 
         // This should fail because the fd is invalid
-        assert!(
-            submit_result.is_err(),
-            "Submit with invalid fd should fail"
-        );
+        assert!(submit_result.is_err(), "Submit with invalid fd should fail");
     }
 }
 
@@ -219,7 +231,7 @@ fn test_epoll_backend_error_handling() {
 fn create_pipe() -> io::Result<(i32, i32)> {
     let mut pipe_fds = [0i32; 2];
     let result = unsafe { libc::pipe(pipe_fds.as_mut_ptr()) };
-    
+
     if result == -1 {
         return Err(io::Error::last_os_error());
     }
@@ -238,7 +250,7 @@ fn create_pipe() -> io::Result<(i32, i32)> {
 }
 
 /// Test backend name reporting
-#[test] 
+#[test]
 fn test_backend_names() {
     #[cfg(target_os = "linux")]
     {
@@ -254,9 +266,15 @@ fn test_non_linux_backend_behavior() {
     {
         // On non-Linux platforms, all backend operations should fail gracefully
         let backend_result = detect_backend(32);
-        assert!(backend_result.is_err(), "Backend detection should fail on non-Linux");
+        assert!(
+            backend_result.is_err(),
+            "Backend detection should fail on non-Linux"
+        );
 
         let epoll_result = EpollBackend::new();
-        assert!(epoll_result.is_err(), "EpollBackend creation should fail on non-Linux");
+        assert!(
+            epoll_result.is_err(),
+            "EpollBackend creation should fail on non-Linux"
+        );
     }
 }

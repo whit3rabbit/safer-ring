@@ -4,8 +4,8 @@
 //! global mutex used by OrphanTracker under different contention scenarios.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use safer_ring::safety::OrphanTracker;
 use safer_ring::ownership::OwnedBuffer;
+use safer_ring::safety::OrphanTracker;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -16,34 +16,42 @@ fn bench_single_threaded_operations(c: &mut Criterion) {
 
     for size in [10, 100, 1000, 10000].iter() {
         group.throughput(Throughput::Elements(*size as u64));
-        group.bench_with_input(BenchmarkId::new("submission_ids", size), size, |b, &size| {
-            let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
+        group.bench_with_input(
+            BenchmarkId::new("submission_ids", size),
+            size,
+            |b, &size| {
+                let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
 
-            b.iter(|| {
-                for _ in 0..size {
+                b.iter(|| {
+                    for _ in 0..size {
+                        let mut tracker = tracker.lock().unwrap();
+                        black_box(tracker.next_submission_id());
+                    }
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("register_orphans", size),
+            size,
+            |b, &size| {
+                let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
+
+                b.iter(|| {
+                    // Register orphans
+                    for i in 0..size {
+                        let buffer = OwnedBuffer::new(1024);
+                        let mut tracker = tracker.lock().unwrap();
+                        tracker.register_orphan(i as u64, buffer);
+                    }
+                    // Clean up by simulating completion handling
                     let mut tracker = tracker.lock().unwrap();
-                    black_box(tracker.next_submission_id());
-                }
-            });
-        });
-
-        group.bench_with_input(BenchmarkId::new("register_orphans", size), size, |b, &size| {
-            let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
-
-            b.iter(|| {
-                // Register orphans
-                for i in 0..size {
-                    let buffer = OwnedBuffer::new(1024);
-                    let mut tracker = tracker.lock().unwrap();
-                    tracker.register_orphan(i as u64, buffer);
-                }
-                // Clean up by simulating completion handling
-                let mut tracker = tracker.lock().unwrap();
-                for i in 0..size {
-                    let _completion = tracker.handle_completion(i as u64, Ok(1024));
-                }
-            });
-        });
+                    for i in 0..size {
+                        let _completion = tracker.handle_completion(i as u64, Ok(1024));
+                    }
+                });
+            },
+        );
     }
 
     group.finish();
@@ -56,18 +64,21 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
     for threads in [2, 4, 8, 16].iter() {
         for ops_per_thread in [100, 1000].iter() {
             group.throughput(Throughput::Elements((threads * ops_per_thread) as u64));
-            
+
             group.bench_with_input(
-                BenchmarkId::new("submission_id_contention", format!("{}threads_{}ops", threads, ops_per_thread)),
+                BenchmarkId::new(
+                    "submission_id_contention",
+                    format!("{}threads_{}ops", threads, ops_per_thread),
+                ),
                 &(threads, ops_per_thread),
                 |b, &(&threads, &ops_per_thread)| {
                     b.iter_custom(|iters| {
                         let mut total_duration = Duration::new(0, 0);
-                        
+
                         for _ in 0..iters {
                             let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
                             let start = Instant::now();
-                            
+
                             let handles: Vec<_> = (0..threads)
                                 .map(|_| {
                                     let tracker = tracker.clone();
@@ -83,26 +94,29 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
                             for handle in handles {
                                 handle.join().unwrap();
                             }
-                            
+
                             total_duration += start.elapsed();
                         }
-                        
+
                         total_duration
                     });
                 },
             );
 
             group.bench_with_input(
-                BenchmarkId::new("mixed_operations_contention", format!("{}threads_{}ops", threads, ops_per_thread)),
+                BenchmarkId::new(
+                    "mixed_operations_contention",
+                    format!("{}threads_{}ops", threads, ops_per_thread),
+                ),
                 &(threads, ops_per_thread),
                 |b, &(&threads, &ops_per_thread)| {
                     b.iter_custom(|iters| {
                         let mut total_duration = Duration::new(0, 0);
-                        
+
                         for _ in 0..iters {
                             let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
                             let start = Instant::now();
-                            
+
                             let handles: Vec<_> = (0..threads)
                                 .map(|thread_id| {
                                     let tracker = tracker.clone();
@@ -111,21 +125,23 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
                                             let mut tracker_guard = tracker.lock().unwrap();
                                             let submission_id = tracker_guard.next_submission_id();
                                             drop(tracker_guard);
-                                            
+
                                             // Simulate some work
                                             black_box(submission_id);
-                                            
+
                                             // Register an orphan occasionally
                                             if i % 10 == 0 {
                                                 let buffer = OwnedBuffer::new(1024);
                                                 let mut tracker_guard = tracker.lock().unwrap();
-                                                tracker_guard.register_orphan(submission_id, buffer);
+                                                tracker_guard
+                                                    .register_orphan(submission_id, buffer);
                                             }
-                                            
+
                                             // Handle completion occasionally (simulate reclaiming)
                                             if i % 15 == 0 {
                                                 let mut tracker_guard = tracker.lock().unwrap();
-                                                let _completion = tracker_guard.handle_completion(submission_id, Ok(1024));
+                                                let _completion = tracker_guard
+                                                    .handle_completion(submission_id, Ok(1024));
                                             }
                                         }
                                     })
@@ -135,10 +151,10 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
                             for handle in handles {
                                 handle.join().unwrap();
                             }
-                            
+
                             total_duration += start.elapsed();
                         }
-                        
+
                         total_duration
                     });
                 },
@@ -152,20 +168,20 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
 /// Compare different lock granularities
 fn bench_lock_granularity_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("lock_granularity_comparison");
-    
+
     // Simulate the current approach (single lock)
     group.bench_function("single_global_lock", |b| {
         let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
         let threads = 4;
         let ops_per_thread = 1000;
-        
+
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
                 let start = Instant::now();
-                
+
                 let handles: Vec<_> = (0..threads)
                     .map(|_| {
                         let tracker = tracker.clone();
@@ -181,10 +197,10 @@ fn bench_lock_granularity_comparison(c: &mut Criterion) {
                 for handle in handles {
                     handle.join().unwrap();
                 }
-                
+
                 total_duration += start.elapsed();
             }
-            
+
             total_duration
         });
     });
@@ -193,19 +209,23 @@ fn bench_lock_granularity_comparison(c: &mut Criterion) {
     group.bench_function("sharded_locks_simulation", |b| {
         // Simulate having separate locks for ID generation vs orphan tracking
         let id_gen_lock = Arc::new(Mutex::new(0u64));
-        let orphan_lock = Arc::new(Mutex::new(std::collections::HashMap::<u64, OwnedBuffer>::new()));
-        
+        let orphan_lock = Arc::new(Mutex::new(
+            std::collections::HashMap::<u64, OwnedBuffer>::new(),
+        ));
+
         let threads = 4;
         let ops_per_thread = 1000;
-        
+
         b.iter_custom(|iters| {
             let mut total_duration = Duration::new(0, 0);
-            
+
             for _ in 0..iters {
                 let id_gen_lock = Arc::new(Mutex::new(0u64));
-                let orphan_lock = Arc::new(Mutex::new(std::collections::HashMap::<u64, OwnedBuffer>::new()));
+                let orphan_lock = Arc::new(Mutex::new(
+                    std::collections::HashMap::<u64, OwnedBuffer>::new(),
+                ));
                 let start = Instant::now();
-                
+
                 let handles: Vec<_> = (0..threads)
                     .map(|_| {
                         let id_gen_lock = id_gen_lock.clone();
@@ -219,7 +239,7 @@ fn bench_lock_granularity_comparison(c: &mut Criterion) {
                                     *gen
                                 };
                                 black_box(id);
-                                
+
                                 // Occasionally touch the orphan map
                                 if id % 100 == 0 {
                                     let orphan_map = orphan_lock.lock().unwrap();
@@ -233,14 +253,14 @@ fn bench_lock_granularity_comparison(c: &mut Criterion) {
                 for handle in handles {
                     handle.join().unwrap();
                 }
-                
+
                 total_duration += start.elapsed();
             }
-            
+
             total_duration
         });
     });
-    
+
     group.finish();
 }
 

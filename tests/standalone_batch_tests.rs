@@ -1,6 +1,6 @@
 //! Tests for standalone batch operations that solve the lifetime constraint issues.
 
-use safer_ring::{Ring, Batch, Operation, PinnedBuffer, BatchConfig, StandaloneBatchFuture};
+use safer_ring::{Batch, BatchConfig, Operation, PinnedBuffer, Ring, StandaloneBatchFuture};
 use std::future::poll_fn;
 
 /// Test that standalone batch operations can be created without lifetime issues.
@@ -17,7 +17,10 @@ async fn test_standalone_batch_creation() {
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
@@ -27,20 +30,14 @@ async fn test_standalone_batch_creation() {
         let mut buffer2 = PinnedBuffer::with_capacity(1024);
 
         // Add operations to batch
-        if let Err(e) = batch.add_operation(
-            Operation::read()
-                .fd(0)
-                .buffer(buffer1.as_mut_slice())
-        ) {
+        if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))
+        {
             println!("Could not add operation to batch: {}", e);
             return;
         }
 
-        if let Err(e) = batch.add_operation(
-            Operation::read()
-                .fd(0)
-                .buffer(buffer2.as_mut_slice())
-        ) {
+        if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buffer2.as_mut_slice()))
+        {
             println!("Could not add operation to batch: {}", e);
             return;
         }
@@ -64,7 +61,7 @@ async fn test_standalone_batch_creation() {
 }
 
 /// Test the polling mechanism for standalone batch futures.
-#[tokio::test]  
+#[tokio::test]
 async fn test_standalone_batch_polling() {
     #[cfg(not(target_os = "linux"))]
     {
@@ -77,7 +74,10 @@ async fn test_standalone_batch_polling() {
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
@@ -87,8 +87,8 @@ async fn test_standalone_batch_polling() {
 
         if let Err(e) = batch.add_operation(
             Operation::read()
-                .fd(0)  // stdin - this will likely block or fail, but we're testing structure
-                .buffer(buffer.as_mut_slice())
+                .fd(0) // stdin - this will likely block or fail, but we're testing structure
+                .buffer(buffer.as_mut_slice()),
         ) {
             println!("Could not add operation to batch: {}", e);
             return;
@@ -121,7 +121,8 @@ async fn test_standalone_batch_polling() {
                     std::task::Poll::Ready(()) // Exit instead of hanging
                 }
             }
-        }).await;
+        })
+        .await;
 
         println!("Successfully tested standalone batch polling mechanism");
     }
@@ -141,7 +142,10 @@ async fn test_multiple_standalone_batches() {
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
@@ -150,24 +154,18 @@ async fn test_multiple_standalone_batches() {
         let mut batch1 = Batch::new();
         let mut buffer1 = PinnedBuffer::with_capacity(1024);
 
-        if let Err(e) = batch1.add_operation(
-            Operation::read()
-                .fd(0)
-                .buffer(buffer1.as_mut_slice())
-        ) {
+        if let Err(e) = batch1.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))
+        {
             println!("Could not add operation to first batch: {}", e);
             return;
         }
 
-        // Create second batch  
+        // Create second batch
         let mut batch2 = Batch::new();
         let mut buffer2 = PinnedBuffer::with_capacity(1024);
 
-        if let Err(e) = batch2.add_operation(
-            Operation::read()
-                .fd(0)
-                .buffer(buffer2.as_mut_slice())
-        ) {
+        if let Err(e) = batch2.add_operation(Operation::read().fd(0).buffer(buffer2.as_mut_slice()))
+        {
             println!("Could not add operation to second batch: {}", e);
             return;
         }
@@ -209,7 +207,10 @@ async fn test_standalone_batch_with_config() {
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!("Could not create ring (io_uring may not be available): {}", e);
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
                 return;
             }
         };
@@ -217,11 +218,7 @@ async fn test_standalone_batch_with_config() {
         let mut batch = Batch::new();
         let mut buffer = PinnedBuffer::with_capacity(1024);
 
-        if let Err(e) = batch.add_operation(
-            Operation::read()
-                .fd(0)
-                .buffer(buffer.as_mut_slice())
-        ) {
+        if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buffer.as_mut_slice())) {
             println!("Could not add operation to batch: {}", e);
             return;
         }

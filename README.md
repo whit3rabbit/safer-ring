@@ -2,6 +2,8 @@
 
 A memory-safe Rust wrapper around Linux's io_uring that provides zero-cost abstractions while preventing common memory safety issues through compile-time guarantees.
 
+> **🔑 Core Innovation**: Transform "if it compiles, it might panic" into Rust's standard "if it compiles, it's memory safe" guarantee through explicit buffer ownership transfer.
+
 ## Safety Model: The "Hot Potato" Pattern
 
 The design's key innovation is the **ownership transfer model** (also known as the "hot potato" pattern):
@@ -78,27 +80,52 @@ This library is designed for Linux systems with io_uring support:
 
 On non-Linux platforms, the library will compile but `Ring::new()` will return an error.
 
-## API Overview
+## API Guide: Choose Your Level of Safety vs Control
 
-### Recommended: Ownership Transfer API
+### 🥇 **Recommended: Ownership Transfer API** (Safest)
 ```rust
 use safer_ring::{Ring, OwnedBuffer};
 
-// Safe buffer ownership transfer
+// The "hot potato" pattern - kernel returns your buffer when done
+let mut ring = Ring::new(32)?;
+let buffer = OwnedBuffer::new(1024);
+
 let (bytes_read, buffer) = ring.read_owned(fd, buffer).await?;
 let (bytes_written, buffer) = ring.write_owned(fd, buffer).await?;
+// Buffer ownership returned, can be reused safely
 ```
+**✅ Pros:** Impossible to access buffer during I/O, eliminates use-after-free  
+**➖ Minimal overhead:** Buffer allocation/deallocation for each operation
 
-### Alternative: Pin-based API (Advanced)
-```rust  
-use safer_ring::{Ring, PinnedBuffer};
+### 🥈 **AsyncRead/AsyncWrite Compatibility** (Familiar)  
+```rust
+use safer_ring::compat::AsyncCompat;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+let ring = Ring::new(32)?;
+let mut file = ring.file(fd);
+
+let mut buffer = vec![0u8; 1024];
+let bytes_read = file.read(&mut buffer).await?; // Just like tokio!
+```
+**✅ Pros:** Drop-in replacement for existing tokio code  
+**➖ Tradeoffs:** Internal copying required, some performance cost
+
+### 🥉 **Pin-based API** (Maximum Control)
+```rust
+use safer_ring::{Ring, PinnedBuffer, Operation};
 
 let mut buffer = PinnedBuffer::with_capacity(1024);
 let operation = Operation::read().fd(fd).buffer(buffer.as_mut_slice());
 let result = ring.submit(operation).await?;
 ```
+**✅ Pros:** Maximum performance, no buffer allocation overhead  
+**⚠️ Advanced:** Requires understanding of pinned memory and lifetimes
 
-> **Recommendation**: Use the ownership transfer API (`*_owned` methods) for the safest and clearest code. The pin-based API is provided for advanced use cases and maximum performance.
+> **🎯 Quick Choice Guide:**
+> - **New projects or learning io_uring:** Use ownership transfer API (`*_owned` methods)
+> - **Migrating from tokio:** Use AsyncRead/AsyncWrite compatibility
+> - **High-performance applications:** Consider pin-based API after profiling
 
 ## Project Status
 
