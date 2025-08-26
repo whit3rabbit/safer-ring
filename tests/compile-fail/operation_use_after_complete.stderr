@@ -1,5 +1,11 @@
-error[E0599]: no method named `submit_with_id` found for struct `Operation<_, _, Completed<_>>` in the current scope
-  --> tests/compile-fail/operation_use_after_complete.rs:16:29
+error[E0382]: use of moved value: `operation`
+  --> tests/compile-fail/operation_use_after_complete.rs:18:24
    |
-16 |     let _resubmit = completed.submit_with_id(2);
-   |                               ^^^^^^^^^^^^^^ method not found in `Operation<_, _, Completed<_>>`
+10 |     let operation = Operation::read()
+   |         --------- move occurs because `operation` has type `Operation<'_, '_, Building>`, which does not implement the `Copy` trait
+...
+15 |     let _moved_operation = operation;
+   |                            --------- value moved here
+...
+18 |     let _another_use = operation.fd(1);
+   |                        ^^^^^^^^^ value used here after move

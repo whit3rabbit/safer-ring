@@ -6,7 +6,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
 
-use crate::error::{Result, SaferRingError};
+use crate::error::Result;
 use crate::future::WakerRegistry;
 
 use crate::ring::batch::{BatchResult, OperationResult};
@@ -35,7 +35,7 @@ use crate::ring::Ring;
 /// ```
 pub struct BatchFuture<'ring> {
     /// Ring reference for polling completions
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     /// Results collected so far
     results: Vec<Option<OperationResult>>,
     /// Dependencies between operations (dependent -> dependencies)
@@ -45,7 +45,10 @@ pub struct BatchFuture<'ring> {
     /// Whether the batch has completed
     completed: bool,
     /// Operation IDs for tracking completions
+    #[allow(dead_code)] // Used for tracking operations, may be needed for debugging
     operation_ids: Vec<Option<u64>>,
+    /// Fast lookup map: operation_id -> batch_index for O(1) completion matching
+    id_to_index: HashMap<u64, usize>,
 }
 
 impl<'ring> BatchFuture<'ring> {
@@ -61,12 +64,20 @@ impl<'ring> BatchFuture<'ring> {
     pub(crate) fn new(
         operation_ids: Vec<Option<u64>>,
         dependencies: HashMap<usize, Vec<usize>>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         _waker_registry: Rc<WakerRegistry>,
         fail_fast: bool,
     ) -> Self {
         let operation_count = operation_ids.len();
         let results = (0..operation_count).map(|_| None).collect();
+
+        // Build the fast lookup map for O(1) operation_id -> batch_index mapping
+        let mut id_to_index = HashMap::new();
+        for (index, id_opt) in operation_ids.iter().enumerate() {
+            if let Some(id) = id_opt {
+                id_to_index.insert(*id, index);
+            }
+        }
 
         Self {
             ring,
@@ -75,6 +86,7 @@ impl<'ring> BatchFuture<'ring> {
             fail_fast,
             completed: false,
             operation_ids,
+            id_to_index,
         }
     }
 
@@ -84,45 +96,58 @@ impl<'ring> BatchFuture<'ring> {
         let mut any_failed = false;
         let mut completed_operations = Vec::new();
 
-        // Check each submitted operation for completion
-        for (index, operation_id_opt) in self.operation_ids.iter().enumerate() {
-            if let Some(operation_id) = operation_id_opt {
-                if self.results[index].is_some() {
-                    continue; // Already completed
-                }
+        // Process ALL available completions in one batch for efficiency
+        // This is much more efficient than checking each operation individually
+        match self.ring.try_complete() {
+            Ok(completions) => {
+                // Process each completion and match it to our pending operations
+                for completion in completions {
+                    let operation_id = completion.id();
 
-                // Check if this operation has completed by polling the completion queue
-                match self.ring.poll_operation_completion(*operation_id) {
-                    Ok(Some(result)) => {
-                        // Operation completed successfully
-                        self.results[index] = Some(OperationResult::Success(result));
-                        any_completed = true;
-                        completed_operations.push(index);
-                    }
-                    Ok(None) => {
-                        // Operation still in progress
-                    }
-                    Err(e) => {
-                        // Operation failed
-                        let error_msg = match e {
-                            SaferRingError::Io(io_err) => io_err.to_string(),
-                            _ => format!("Operation failed: {}", e),
+                    // Use O(1) HashMap lookup instead of O(N) linear search
+                    if let Some(&index) = self.id_to_index.get(&operation_id) {
+                        if self.results[index].is_some() {
+                            continue; // Already completed (shouldn't happen, but defensive)
+                        }
+
+                        // Extract the result from the completion
+                        let result = match completion.result() {
+                            Ok(bytes) => OperationResult::Success(*bytes),
+                            Err(e) => {
+                                let error_msg = e.to_string();
+                                OperationResult::Error(error_msg)
+                            }
                         };
-                        self.results[index] = Some(OperationResult::Error(error_msg));
+
+                        let is_error = matches!(result, OperationResult::Error(_));
+                        self.results[index] = Some(result);
                         any_completed = true;
-                        any_failed = true;
+                        if is_error {
+                            any_failed = true;
+                        }
                         completed_operations.push(index);
                     }
+                    // If we can't find the operation, it might be from a different batch
+                    // or completed operation - ignore it
                 }
+            }
+            Err(e) => {
+                // Error polling completions - this might be a system error
+                return Poll::Ready(Err(e));
             }
         }
 
         // Process completed operations to check for ready dependencies
         for completed_index in completed_operations {
             self.check_ready_operations(completed_index);
-            
+
             // Cancel dependent operations if fail_fast is enabled and this operation failed
-            if self.fail_fast && matches!(self.results[completed_index], Some(OperationResult::Error(_))) {
+            if self.fail_fast
+                && matches!(
+                    self.results[completed_index],
+                    Some(OperationResult::Error(_))
+                )
+            {
                 self.cancel_dependent_operations(completed_index);
             }
         }
@@ -157,7 +182,7 @@ impl<'ring> BatchFuture<'ring> {
         // is simplified. In a more sophisticated implementation, we would
         // track which operations are waiting for dependencies and submit them
         // when their dependencies complete.
-        
+
         // This is a placeholder for future dependency handling logic
         let _newly_ready: Vec<usize> = Vec::new();
 
@@ -167,10 +192,7 @@ impl<'ring> BatchFuture<'ring> {
                 // Check if all dependencies for this operation are now satisfied
                 let _all_deps_satisfied = dependencies.iter().all(|&dep_index| {
                     self.results[dep_index].is_some()
-                        && self.results[dep_index]
-                            .as_ref()
-                            .unwrap()
-                            .is_success()
+                        && self.results[dep_index].as_ref().unwrap().is_success()
                 });
 
                 // In the current implementation, all operations are submitted immediately
@@ -239,9 +261,7 @@ impl<'ring> Future for BatchFuture<'ring> {
             let results: Vec<OperationResult> = self
                 .results
                 .iter()
-                .map(|opt| {
-                    opt.as_ref().cloned().unwrap_or(OperationResult::Cancelled)
-                })
+                .map(|opt| opt.as_ref().cloned().unwrap_or(OperationResult::Cancelled))
                 .collect();
 
             return Poll::Ready(Ok(BatchResult::new(results)));
@@ -259,9 +279,7 @@ impl<'ring> Future for BatchFuture<'ring> {
                 let results: Vec<OperationResult> = self
                     .results
                     .iter()
-                    .map(|opt| {
-                        opt.as_ref().cloned().unwrap_or(OperationResult::Cancelled)
-                    })
+                    .map(|opt| opt.as_ref().cloned().unwrap_or(OperationResult::Cancelled))
                     .collect();
 
                 Poll::Ready(Ok(BatchResult::new(results)))

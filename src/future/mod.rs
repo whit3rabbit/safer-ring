@@ -27,15 +27,20 @@
 mod batch_future;
 mod io_futures;
 mod operation_future;
-mod waker;
+mod standalone_batch_future;
+pub(crate) mod waker;
 
 #[cfg(test)]
 mod tests;
 
 // Re-export public types
 pub use batch_future::BatchFuture;
-pub use io_futures::{AcceptFuture, ReadFuture, RecvFuture, SendFuture, VectoredReadFuture, VectoredWriteFuture, WriteFuture};
+pub use io_futures::{
+    AcceptFuture, ReadFuture, RecvFuture, SendFuture, VectoredReadFuture, VectoredWriteFuture,
+    WriteFuture,
+};
 pub use operation_future::OperationFuture;
+pub use standalone_batch_future::StandaloneBatchFuture;
 
 // Re-export internal types for crate use
 pub(crate) use waker::WakerRegistry;

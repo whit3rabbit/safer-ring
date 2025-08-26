@@ -74,6 +74,7 @@ impl<'ring, 'buf, T> Operation<'ring, 'buf, Completed<T>> {
         match &self.fd {
             FdType::Raw(fd) => *fd,
             FdType::Registered(reg_fd) => reg_fd.raw_fd(),
+            FdType::Fixed(fixed_file) => fixed_file.raw_fd(),
         }
     }
 

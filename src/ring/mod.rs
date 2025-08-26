@@ -6,7 +6,6 @@
 pub mod batch;
 mod completion;
 mod core;
-mod submission;
 
 #[cfg(test)]
 mod tests;

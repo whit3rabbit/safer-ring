@@ -77,7 +77,7 @@
   - Write tests for registration lifecycle and safety constraints
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
 
-- [X] 11. Add comprehensive read operation support
+- [x] 11. Add comprehensive read operation support
   - Implement read() method on Ring with proper buffer handling
   - Add support for both registered and unregistered buffers
   - Implement offset-based reads for file operations
@@ -109,7 +109,7 @@
   - Write tests for batch operation performance and correctness
   - _Requirements: 8.4, 9.4_
 
-- [-] 15. Implement comprehensive safety tests
+- [x] 15. Implement comprehensive safety tests
   - Create compile-fail tests for all safety invariants
   - Add property-based tests using proptest for buffer lifecycle
   - Implement loom tests for concurrent operation safety
@@ -117,7 +117,7 @@
   - Create memory leak detection tests
   - _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.4_
 
-- [ ] 16. Create example applications
+- [x] 16. Create example applications
   - Implement TCP echo server example demonstrating basic usage
   - Create file copy example showing zero-copy operations
   - Add HTTPS server example with kTLS integration (if available)
@@ -125,7 +125,7 @@
   - Add comprehensive documentation and comments to examples
   - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
-- [ ] 17. Add performance benchmarks and optimizations
+- [x] 17. Add performance benchmarks and optimizations
   - Create micro-benchmarks for individual operations
   - Implement macro-benchmarks comparing with raw io_uring
   - Add memory usage profiling and optimization
@@ -133,7 +133,7 @@
   - Profile and optimize hot paths for zero-cost abstractions
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 18. Implement advanced features and polish
+- [x] 18. Implement advanced features and polish
   - Add support for io_uring advanced features (buffer selection, etc.)
   - Implement comprehensive logging and debugging support
   - Add configuration options for different use cases

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::os::unix::io::RawFd;
+use std::pin::Pin;
 
 use crate::operation::OperationType;
 
@@ -22,7 +23,23 @@ pub(crate) struct OperationHandle<'ring> {
     pub(crate) id: u64,
     pub(crate) op_type: OperationType,
     pub(crate) fd: RawFd,
+    /// Buffer ownership for operations that use buffers
+    pub(crate) buffer: Option<BufferOwnership>,
     _phantom: PhantomData<&'ring ()>,
+}
+
+/// Represents ownership of a buffer used in an operation.
+/// This allows the completion API to return buffer ownership to the caller.
+///
+/// Note: This is designed for use with owned buffers (like PinnedBuffer) that can
+/// be transferred between the submission and completion phases. The future-based API
+/// manages ownership through lifetimes and doesn't need this mechanism.
+#[derive(Debug)]
+pub enum BufferOwnership {
+    /// Single owned buffer (e.g. from PinnedBuffer)
+    Single(Pin<Box<[u8]>>),
+    /// Multiple owned buffers for vectored operations
+    Vectored(Vec<Pin<Box<[u8]>>>),
 }
 
 impl<'ring> OperationTracker<'ring> {
@@ -37,6 +54,16 @@ impl<'ring> OperationTracker<'ring> {
 
     /// Register a new operation and return its ID.
     pub(crate) fn register_operation(&mut self, op_type: OperationType, fd: RawFd) -> u64 {
+        self.register_operation_with_buffer(op_type, fd, None)
+    }
+
+    /// Register a new operation with buffer ownership and return its ID.
+    pub(crate) fn register_operation_with_buffer(
+        &mut self,
+        op_type: OperationType,
+        fd: RawFd,
+        buffer: Option<BufferOwnership>,
+    ) -> u64 {
         let id = self.next_id;
         // Wrapping add prevents overflow panics in long-running applications
         self.next_id = self.next_id.wrapping_add(1);
@@ -45,6 +72,7 @@ impl<'ring> OperationTracker<'ring> {
             id,
             op_type,
             fd,
+            buffer,
             _phantom: PhantomData,
         };
 

@@ -54,7 +54,9 @@ macro_rules! poll_io_operation {
             }
             Ok(None) => {
                 // Still pending - register waker for notification
-                $self.waker_registry.register_waker(operation_id, $cx.waker().clone());
+                $self
+                    .waker_registry
+                    .register_waker(operation_id, $cx.waker().clone());
                 Poll::Pending
             }
             Err(e) => {
@@ -116,7 +118,9 @@ macro_rules! poll_vectored_operation {
                 }
             }
             Ok(None) => {
-                $self.waker_registry.register_waker(operation_id, $cx.waker().clone());
+                $self
+                    .waker_registry
+                    .register_waker(operation_id, $cx.waker().clone());
                 Poll::Pending
             }
             Err(e) => {

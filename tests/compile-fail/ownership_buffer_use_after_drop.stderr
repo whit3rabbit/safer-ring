@@ -1,0 +1,21 @@
+warning: variable does not need to be mutable
+ --> tests/compile-fail/ownership_buffer_use_after_drop.rs:8:9
+  |
+8 |     let mut ring = Ring::new(32).unwrap();
+  |         ----^^^^
+  |         |
+  |         help: remove this `mut`
+  |
+  = note: `#[warn(unused_mut)]` on by default
+
+error[E0382]: borrow of moved value: `buffer`
+  --> tests/compile-fail/ownership_buffer_use_after_drop.rs:15:33
+   |
+9  |     let buffer = OwnedBuffer::new(1024);
+   |         ------ move occurs because `buffer` has type `OwnedBuffer`, which does not implement the `Copy` trait
+...
+12 |     let _future = ring.read_owned(0, buffer);
+   |                                      ------ value moved here
+...
+15 |     println!("Buffer size: {}", buffer.size()); //~ ERROR
+   |                                 ^^^^^^ value borrowed here after move

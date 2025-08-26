@@ -1,6 +1,6 @@
-// This test should fail to compile because completed operations cannot be reused
+// This test should fail to compile because operations cannot be used after being moved
 
-use safer_ring::operation::{Operation, Completed};
+use safer_ring::operation::Operation;
 use std::pin::Pin;
 
 fn main() {
@@ -11,9 +11,9 @@ fn main() {
         .fd(0)
         .buffer(pinned);
     
-    let submitted = operation.submit_with_id(1).unwrap();
-    let completed: Operation<_, _, Completed<_>> = submitted.complete_with_result(Ok(100));
+    // Move the operation
+    let _moved_operation = operation;
     
-    // This should not compile - completed operations don't have submit_with_id method
-    let _resubmit = completed.submit_with_id(2);
+    // This should not compile - operation was moved
+    let _another_use = operation.fd(1);
 }

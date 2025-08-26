@@ -221,6 +221,33 @@ impl<'ring, 'buf> Operation<'ring, 'buf, Building> {
         self
     }
 
+    /// Set a fixed file for this operation.
+    ///
+    /// Fixed files provide the best performance for frequently used files
+    /// by avoiding both file descriptor lookups and translation overhead.
+    /// The file must be pre-registered with the registry.
+    ///
+    /// # Arguments
+    ///
+    /// * `fixed_file` - A fixed file from the registry
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use safer_ring::{operation::Operation, Registry};
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut registry = Registry::new();
+    /// let fixed_files = registry.register_fixed_files(vec![0, 1])?;
+    /// let op = Operation::read().fixed_file(fixed_files[0].clone());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[inline]
+    pub fn fixed_file(mut self, fixed_file: crate::registry::FixedFile) -> Self {
+        self.fd = FdType::Fixed(fixed_file);
+        self
+    }
+
     /// Set the buffer for this operation.
     ///
     /// The buffer lifetime must be at least as long as the ring lifetime
@@ -329,8 +356,6 @@ impl<'ring, 'buf> Operation<'ring, 'buf, Building> {
         self.offset = offset;
         self
     }
-
-
 
     /// Get the current offset.
     ///

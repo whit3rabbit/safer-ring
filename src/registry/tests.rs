@@ -466,8 +466,7 @@ mod lifecycle_safety {
 
 /// Test compile-time safety properties
 mod compile_time_safety {
-    use super::*;
-    use static_assertions::*;
+    // Unused imports removed
 
     // RegisteredFd and RegisteredBuffer are now Send/Sync for better ergonomics
     // The safety is maintained through the registry's lifetime management

@@ -1,0 +1,19 @@
+error[E0596]: cannot borrow `ring` as mutable, as it is not declared as mutable
+  --> tests/compile-fail/future_buffer_lifetime.rs:11:5
+   |
+11 |     ring.read(0, buffer.as_mut_slice()).unwrap()
+   |     ^^^^ cannot borrow as mutable
+   |
+help: consider changing this to be mutable
+   |
+6  |     let mut ring = Ring::new(10).unwrap();
+   |         +++
+
+error[E0515]: cannot return value referencing local variable `buffer`
+  --> tests/compile-fail/future_buffer_lifetime.rs:11:5
+   |
+11 |     ring.read(0, buffer.as_mut_slice()).unwrap()
+   |     ^^^^^^^^^^^^^------^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |            |
+   |     |            `buffer` is borrowed here
+   |     returns a value referencing data owned by the current function

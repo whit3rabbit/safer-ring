@@ -4,7 +4,7 @@ use safer_ring::{BufferPool, Ring};
 
 fn main() {
     let ring = Ring::new(10).unwrap();
-    let buffer = {
+    let mut buffer = {
         let pool = BufferPool::new(10, 1024);
         pool.get().unwrap() // This buffer should not be able to outlive the pool
     };

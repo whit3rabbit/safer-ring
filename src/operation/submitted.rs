@@ -24,6 +24,7 @@ impl<'ring, 'buf> Operation<'ring, 'buf, Submitted> {
         match &self.fd {
             FdType::Raw(fd) => *fd,
             FdType::Registered(reg_fd) => reg_fd.raw_fd(),
+            FdType::Fixed(fixed_file) => fixed_file.raw_fd(),
         }
     }
 
@@ -106,6 +107,12 @@ impl<'ring, 'buf> Operation<'ring, 'buf, Submitted> {
     #[inline]
     pub fn uses_registered_fd(&self) -> bool {
         matches!(self.fd, FdType::Registered(_))
+    }
+
+    /// Check if this operation uses a fixed file.
+    #[inline]
+    pub fn uses_fixed_file(&self) -> bool {
+        matches!(self.fd, FdType::Fixed(_))
     }
 
     /// Check if this operation is vectored.

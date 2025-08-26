@@ -1,10 +1,55 @@
-error[E0499]: cannot borrow `buffer` as mutable more than once at a time
-  --> tests/compile-fail/buffer_concurrent_access.rs:12:31
+error[E0596]: cannot borrow `ring` as mutable, as it is not declared as mutable
+  --> tests/compile-fail/buffer_concurrent_access.rs:6:9
    |
-9  |     let _future1 = ring.read(0, buffer.as_mut_slice());
+6  |     let ring = Ring::new(10).unwrap();
+   |         ^^^^ not mutable
+...
+10 |     let _future1 = ring.read(0, buffer.as_mut_slice());
+   |                    ---- cannot borrow as mutable
+...
+13 |     let _future2 = ring.write(1, buffer.as_mut_slice());
+   |                    ---- cannot borrow as mutable
+   |
+help: consider changing this to be mutable
+   |
+6  |     let mut ring = Ring::new(10).unwrap();
+   |         +++
+
+error[E0597]: `buffer` does not live long enough
+  --> tests/compile-fail/buffer_concurrent_access.rs:10:33
+   |
+7  |     let mut buffer = PinnedBuffer::with_capacity(1024);
+   |         ---------- binding `buffer` declared here
+...
+10 |     let _future1 = ring.read(0, buffer.as_mut_slice());
+   |                                 ^^^^^^ borrowed value does not live long enough
+...
+14 | }
+   | -
+   | |
+   | `buffer` dropped here while still borrowed
+   | borrow might be used here, when `ring` is dropped and runs the `Drop` code for type `Ring`
+   |
+   = note: values in a scope are dropped in the opposite order they are defined
+
+error[E0499]: cannot borrow `ring` as mutable more than once at a time
+  --> tests/compile-fail/buffer_concurrent_access.rs:13:20
+   |
+10 |     let _future1 = ring.read(0, buffer.as_mut_slice());
+   |                    ---- first mutable borrow occurs here
+...
+13 |     let _future2 = ring.write(1, buffer.as_mut_slice());
+   |                    ^^^^ second mutable borrow occurs here
+14 | }
+   | - first borrow might be used here, when `_future1` is dropped and runs the destructor for type `Result<ReadFuture<'_, '_>, SaferRingError>`
+
+error[E0499]: cannot borrow `buffer` as mutable more than once at a time
+  --> tests/compile-fail/buffer_concurrent_access.rs:13:34
+   |
+10 |     let _future1 = ring.read(0, buffer.as_mut_slice());
    |                                 ------ first mutable borrow occurs here
 ...
-12 |     let _future2 = ring.write(1, buffer.as_mut_slice());
+13 |     let _future2 = ring.write(1, buffer.as_mut_slice());
    |                                  ^^^^^^ second mutable borrow occurs here
-13 | }
-   |  - first borrow might be used here, when `_future1` is dropped and runs the `Drop` code for type `ReadFuture`
+14 | }
+   | - first borrow might be used here, when `_future1` is dropped and runs the destructor for type `Result<ReadFuture<'_, '_>, SaferRingError>`

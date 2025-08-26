@@ -4,7 +4,7 @@ use safer_ring::{Ring, PinnedBuffer};
 
 fn main() {
     let ring = Ring::new(10).unwrap();
-    let buffer = PinnedBuffer::with_capacity(1024);
+    let mut buffer = PinnedBuffer::with_capacity(1024);
     
     // First operation using the buffer
     let _future1 = ring.read(0, buffer.as_mut_slice());

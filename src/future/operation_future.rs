@@ -8,8 +8,8 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 
 use crate::future::waker::WakerRegistry;
-use crate::operation::{Operation, Submitted};
 use crate::operation::BufferType;
+use crate::operation::{Operation, Submitted};
 use crate::ring::Ring;
 
 /// Generic future for any operation type.
@@ -34,7 +34,7 @@ pub struct OperationFuture<'ring, 'buf> {
     /// Using Option to allow taking ownership during completion
     operation: Option<Operation<'ring, 'buf, Submitted>>,
     /// Reference to the ring for polling completions
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     /// Waker registry for async notification
     waker_registry: Rc<WakerRegistry>,
     /// Phantom data for lifetime tracking
@@ -45,7 +45,7 @@ impl<'ring, 'buf> OperationFuture<'ring, 'buf> {
     /// Create a new operation future from a submitted operation.
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {

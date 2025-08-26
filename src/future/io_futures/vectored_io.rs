@@ -18,7 +18,7 @@ use crate::ring::Ring;
 /// Returns the total bytes read and all buffer ownership when complete.
 pub struct VectoredReadFuture<'ring, 'buf> {
     operation: Option<Operation<'ring, 'buf, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     waker_registry: Rc<WakerRegistry>,
     // Same lifetime structure as single-buffer operations for consistency
     _phantom: PhantomData<(&'ring (), &'buf ())>,
@@ -30,7 +30,7 @@ pub struct VectoredReadFuture<'ring, 'buf> {
 /// Returns the total bytes written and all buffer ownership when complete.
 pub struct VectoredWriteFuture<'ring, 'buf> {
     operation: Option<Operation<'ring, 'buf, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     waker_registry: Rc<WakerRegistry>,
     _phantom: PhantomData<(&'ring (), &'buf ())>,
 }
@@ -38,7 +38,7 @@ pub struct VectoredWriteFuture<'ring, 'buf> {
 impl<'ring, 'buf> VectoredReadFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {
@@ -53,7 +53,7 @@ impl<'ring, 'buf> VectoredReadFuture<'ring, 'buf> {
 impl<'ring, 'buf> VectoredWriteFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {

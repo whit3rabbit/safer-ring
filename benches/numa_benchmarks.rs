@@ -1,0 +1,346 @@
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use pprof::criterion::{Output, PProfProfiler};
+use safer_ring::{BufferPool, PinnedBuffer, Ring};
+use std::os::unix::io::AsRawFd;
+use tempfile::NamedTempFile;
+use tokio::runtime::Runtime;
+
+#[cfg(target_os = "linux")]
+mod numa_support {
+    use libc::{cpu_set_t, sched_setaffinity, CPU_SET, CPU_ZERO};
+    use std::mem;
+
+    pub fn get_numa_nodes() -> Vec<usize> {
+        // Simple NUMA node detection - in a real implementation,
+        // you'd use proper NUMA libraries
+        let cpu_count = num_cpus::get();
+        if cpu_count > 8 {
+            vec![0, 1] // Assume 2 NUMA nodes for multi-socket systems
+        } else {
+            vec![0] // Single NUMA node
+        }
+    }
+
+    pub fn bind_to_numa_node(node: usize) -> Result<(), Box<dyn std::error::Error>> {
+        // Bind current thread to CPUs on specific NUMA node
+        // This is a simplified implementation
+        let cpus_per_node = num_cpus::get() / get_numa_nodes().len().max(1);
+        let start_cpu = node * cpus_per_node;
+        let end_cpu = ((node + 1) * cpus_per_node).min(num_cpus::get());
+
+        unsafe {
+            let mut cpu_set: cpu_set_t = mem::zeroed();
+            CPU_ZERO(&mut cpu_set);
+
+            for cpu in start_cpu..end_cpu {
+                CPU_SET(cpu, &mut cpu_set);
+            }
+
+            let result = sched_setaffinity(0, mem::size_of::<cpu_set_t>(), &cpu_set);
+            if result != 0 {
+                return Err("Failed to set CPU affinity".into());
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn allocate_numa_buffer(size: usize, node: usize) -> Vec<u8> {
+        // In a real implementation, you'd use numa_alloc_onnode or similar
+        // For now, we'll simulate by binding thread and allocating normally
+        let _ = bind_to_numa_node(node);
+        vec![0u8; size]
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod numa_support {
+    pub fn get_numa_nodes() -> Vec<usize> {
+        vec![0] // Single node on non-Linux systems
+    }
+
+    pub fn bind_to_numa_node(_node: usize) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(()) // No-op on non-Linux systems
+    }
+
+    pub fn allocate_numa_buffer(size: usize, _node: usize) -> Vec<u8> {
+        vec![0u8; size]
+    }
+}
+
+// NUMA-aware buffer pool implementation
+struct NumaBufferPool {
+    pools: Vec<BufferPool>,
+    current_node: std::sync::atomic::AtomicUsize,
+}
+
+impl NumaBufferPool {
+    fn new(
+        buffers_per_node: usize,
+        buffer_size: usize,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let numa_nodes = numa_support::get_numa_nodes();
+        let mut pools = Vec::new();
+
+        for node in &numa_nodes {
+            numa_support::bind_to_numa_node(*node)?;
+            let pool = BufferPool::new(buffers_per_node, buffer_size);
+            pools.push(pool);
+        }
+
+        Ok(Self {
+            pools,
+            current_node: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    fn acquire_local(&self) -> Option<safer_ring::PooledBuffer> {
+        let node = self.current_node.load(std::sync::atomic::Ordering::Relaxed) % self.pools.len();
+        self.pools[node].acquire()
+    }
+
+    fn acquire_round_robin(&self) -> Option<safer_ring::PooledBuffer> {
+        let node = self
+            .current_node
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            % self.pools.len();
+        self.pools[node].acquire()
+    }
+}
+
+fn setup_test_file() -> NamedTempFile {
+    let mut file = NamedTempFile::new().unwrap();
+    let data = vec![0u8; 64 * 1024];
+    std::io::Write::write_all(&mut file, &data).unwrap();
+    file.flush().unwrap();
+    file
+}
+
+fn bench_numa_buffer_allocation(c: &mut Criterion) {
+    let mut group = c.benchmark_group("numa_buffer_allocation");
+    let numa_nodes = numa_support::get_numa_nodes();
+
+    if numa_nodes.len() > 1 {
+        for node in &numa_nodes {
+            group.bench_with_input(BenchmarkId::new("numa_local", node), node, |b, &node| {
+                b.iter(|| {
+                    numa_support::bind_to_numa_node(node).unwrap();
+                    let buffer = numa_support::allocate_numa_buffer(4096, node);
+                    let pinned = PinnedBuffer::new(buffer);
+                    black_box(pinned);
+                })
+            });
+        }
+
+        group.bench_function("numa_remote", |b| {
+            b.iter(|| {
+                // Allocate on node 0 but access from node 1 (if available)
+                if numa_nodes.len() > 1 {
+                    let buffer = numa_support::allocate_numa_buffer(4096, 0);
+                    numa_support::bind_to_numa_node(1).unwrap();
+                    let pinned = PinnedBuffer::new(buffer);
+                    black_box(pinned);
+                }
+            })
+        });
+    }
+
+    group.bench_function("numa_unaware", |b| {
+        b.iter(|| {
+            let buffer = vec![0u8; 4096];
+            let pinned = PinnedBuffer::new(buffer);
+            black_box(pinned);
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_numa_buffer_pool(c: &mut Criterion) {
+    let mut group = c.benchmark_group("numa_buffer_pool");
+    let numa_nodes = numa_support::get_numa_nodes();
+
+    if numa_nodes.len() > 1 {
+        group.bench_function("numa_aware_pool", |b| {
+            let numa_pool = NumaBufferPool::new(50, 4096).unwrap();
+
+            b.iter(|| {
+                let buffer = numa_pool.acquire_local();
+                black_box(buffer);
+            })
+        });
+
+        group.bench_function("numa_round_robin_pool", |b| {
+            let numa_pool = NumaBufferPool::new(50, 4096).unwrap();
+
+            b.iter(|| {
+                let buffer = numa_pool.acquire_round_robin();
+                black_box(buffer);
+            })
+        });
+    }
+
+    group.bench_function("single_pool", |b| {
+        let pool = BufferPool::new(100, 4096).unwrap();
+
+        b.iter(|| {
+            let buffer = pool.acquire();
+            black_box(buffer);
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_numa_io_operations(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+    let mut group = c.benchmark_group("numa_io_operations");
+    let numa_nodes = numa_support::get_numa_nodes();
+
+    if numa_nodes.len() > 1 {
+        for node in &numa_nodes {
+            group.bench_with_input(BenchmarkId::new("numa_local_io", node), node, |b, &node| {
+                let file = setup_test_file();
+
+                b.iter(|| {
+                    rt.block_on(async {
+                        numa_support::bind_to_numa_node(node).unwrap();
+
+                        let ring = Ring::new(256).unwrap();
+                        let fd = file.as_raw_fd();
+
+                        let mut futures = Vec::new();
+                        for i in 0..10 {
+                            let buffer = numa_support::allocate_numa_buffer(4096, node);
+                            let pinned_buffer = PinnedBuffer::new(buffer);
+                            futures.push(ring.read_at(fd, pinned_buffer, (i * 4096) as u64));
+                        }
+
+                        let results = futures::future::join_all(futures).await;
+                        black_box(results);
+                    })
+                })
+            });
+        }
+
+        group.bench_function("numa_cross_node_io", |b| {
+            let file = setup_test_file();
+
+            b.iter(|| {
+                rt.block_on(async {
+                    let ring = Ring::new(256).unwrap();
+                    let fd = file.as_raw_fd();
+
+                    let mut futures = Vec::new();
+                    for i in 0..10 {
+                        // Allocate buffer on node 0, but process on node 1
+                        let buffer = numa_support::allocate_numa_buffer(4096, 0);
+                        numa_support::bind_to_numa_node(1).unwrap();
+                        let pinned_buffer = PinnedBuffer::new(buffer);
+                        futures.push(ring.read_at(fd, pinned_buffer, (i * 4096) as u64));
+                    }
+
+                    let results = futures::future::join_all(futures).await;
+                    black_box(results);
+                })
+            })
+        });
+    }
+
+    group.bench_function("numa_unaware_io", |b| {
+        let file = setup_test_file();
+
+        b.iter(|| {
+            rt.block_on(async {
+                let ring = Ring::new(256).unwrap();
+                let fd = file.as_raw_fd();
+
+                let mut futures = Vec::new();
+                for i in 0..10 {
+                    let buffer = PinnedBuffer::new(vec![0u8; 4096]);
+                    futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                }
+
+                let results = futures::future::join_all(futures).await;
+                black_box(results);
+            })
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_numa_concurrent_access(c: &mut Criterion) {
+    let rt = Runtime::new().unwrap();
+    let mut group = c.benchmark_group("numa_concurrent_access");
+    let numa_nodes = numa_support::get_numa_nodes();
+
+    if numa_nodes.len() > 1 {
+        group.bench_function("numa_aware_concurrent", |b| {
+            let numa_pool = NumaBufferPool::new(100, 4096).unwrap();
+            let files: Vec<_> = (0..numa_nodes.len()).map(|_| setup_test_file()).collect();
+
+            b.iter(|| {
+                rt.block_on(async {
+                    let ring = Ring::new(256).unwrap();
+                    let mut futures = Vec::new();
+
+                    for (node, file) in numa_nodes.iter().zip(&files) {
+                        numa_support::bind_to_numa_node(*node).unwrap();
+                        let fd = file.as_raw_fd();
+
+                        for i in 0..10 {
+                            if let Some(buffer) = numa_pool.acquire_local() {
+                                futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                            }
+                        }
+                    }
+
+                    let results = futures::future::join_all(futures).await;
+                    black_box(results);
+                })
+            })
+        });
+    }
+
+    group.bench_function("numa_unaware_concurrent", |b| {
+        let pool = BufferPool::new(200, 4096).unwrap();
+        let files: Vec<_> = (0..4).map(|_| setup_test_file()).collect();
+
+        b.iter(|| {
+            rt.block_on(async {
+                let ring = Ring::new(256).unwrap();
+                let mut futures = Vec::new();
+
+                for file in &files {
+                    let fd = file.as_raw_fd();
+
+                    for i in 0..10 {
+                        if let Some(buffer) = pool.acquire() {
+                            futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                        }
+                    }
+                }
+
+                let results = futures::future::join_all(futures).await;
+                black_box(results);
+            })
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .with_profiler(PProfProfiler::new(100, Output::Flamegraph(None)))
+        .sample_size(30);
+    targets =
+        bench_numa_buffer_allocation,
+        bench_numa_buffer_pool,
+        bench_numa_io_operations,
+        bench_numa_concurrent_access
+}
+
+criterion_main!(benches);

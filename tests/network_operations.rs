@@ -4,16 +4,13 @@
 //! with the safer-ring library. The tests use real sockets to ensure proper
 //! integration with the kernel's io_uring implementation.
 
-use safer_ring::{Operation, PinnedBuffer, Ring};
-use std::io::{self, Read, Write};
+use safer_ring::Ring;
+use std::io::{self};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::io::{AsRawFd, RawFd};
-use std::pin::Pin;
 use std::thread;
-use std::time::Duration;
-use tokio::time::timeout;
 
 /// Helper function to create a listening socket for testing.
+#[allow(dead_code)]
 fn create_test_listener() -> io::Result<(TcpListener, u16)> {
     let listener = TcpListener::bind("127.0.0.1:0")?;
     let port = listener.local_addr()?.port();
@@ -21,18 +18,19 @@ fn create_test_listener() -> io::Result<(TcpListener, u16)> {
 }
 
 /// Helper function to create a connected socket pair for testing.
+#[allow(dead_code)]
 fn create_connected_pair() -> io::Result<(TcpStream, TcpStream)> {
     let (listener, port) = create_test_listener()?;
-    
+
     // Connect from another thread to avoid blocking
     let client_handle = thread::spawn(move || -> io::Result<TcpStream> {
         TcpStream::connect(format!("127.0.0.1:{}", port))
     });
-    
+
     // Accept the connection
     let (server_stream, _) = listener.accept()?;
     let client_stream = client_handle.join().unwrap()?;
-    
+
     Ok((server_stream, client_stream))
 }
 
@@ -54,13 +52,13 @@ async fn test_accept_operation() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wait for accept to complete
     let client_fd = timeout(Duration::from_secs(5), accept_future).await??;
-    
+
     // Verify we got a valid file descriptor
     assert!(client_fd >= 0);
-    
+
     // Ensure the connection was established
     let _client_stream = connect_handle.await??;
-    
+
     // Clean up - close the accepted socket
     unsafe {
         libc::close(client_fd);
@@ -162,7 +160,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error>> {
     let client_task = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(10)).await;
         let mut client = TcpStream::connect(format!("127.0.0.1:{}", port))?;
-        
+
         let test_data = b"Echo test message";
         client.write_all(test_data)?;
         client.flush()?;
@@ -200,7 +198,7 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
         let client_task = tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(i as u64 * 10)).await;
             let mut client = TcpStream::connect(format!("127.0.0.1:{}", port))?;
-            
+
             let test_data = format!("Message from client {}", i);
             client.write_all(test_data.as_bytes())?;
             client.flush()?;
@@ -216,7 +214,7 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
     // Handle connections on server side
     let server_task = tokio::spawn(async move {
         let mut results = Vec::new();
-        
+
         for _ in 0..NUM_CONNECTIONS {
             // Accept connection
             let client_fd = ring.accept(listener_fd).await?;
@@ -294,7 +292,7 @@ async fn test_network_operations_unsupported_platform() {
     // On non-Linux platforms, we should still be able to create operations
     // but they won't actually execute
     let ring_result = Ring::new(32);
-    
+
     // Ring creation should fail gracefully on unsupported platforms
     assert!(ring_result.is_err());
 }

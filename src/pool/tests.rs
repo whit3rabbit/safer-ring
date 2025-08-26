@@ -94,7 +94,7 @@ fn pooled_buffer_operations() {
 #[test]
 fn pool_stats() {
     let pool = BufferPool::new(10, 2048);
-    let stats = pool.stats().unwrap();
+    let stats = pool.stats();
 
     assert_eq!(stats.capacity, 10);
     assert_eq!(stats.available, 10);
@@ -107,7 +107,7 @@ fn pool_stats() {
     let _buffer1 = pool.try_get().unwrap().unwrap();
     let _buffer2 = pool.try_get().unwrap().unwrap();
 
-    let stats = pool.stats().unwrap();
+    let stats = pool.stats();
     assert_eq!(stats.available, 8);
     assert_eq!(stats.in_use, 2);
     assert_eq!(stats.total_allocations, 2);
@@ -117,7 +117,7 @@ fn pool_stats() {
 
 fn pool_stats_enhanced_methods() {
     let pool = BufferPool::new(10, 1024);
-    let stats = pool.stats().unwrap();
+    let stats = pool.stats();
 
     // Test new methods
     assert_eq!(stats.utilization_percent(), 0.0);
@@ -129,7 +129,7 @@ fn pool_stats_enhanced_methods() {
 
     // Allocate some buffers to test utilization (9 out of 10 = 90%)
     let _buffers: Vec<_> = (0..9).map(|_| pool.try_get().unwrap().unwrap()).collect();
-    let stats = pool.stats().unwrap();
+    let stats = pool.stats();
 
     assert_eq!(stats.utilization_percent(), 90.0);
     assert_eq!(stats.memory_in_use_bytes(), 9 * 1024);
@@ -140,7 +140,7 @@ fn pool_stats_enhanced_methods() {
     let failed = pool.try_get().unwrap(); // This should fail
     assert!(failed.is_none());
 
-    let stats = pool.stats().unwrap();
+    let stats = pool.stats();
     assert!(stats.has_allocation_failures());
     assert!(stats.success_rate_percent() < 100.0);
 }

@@ -8,7 +8,7 @@ use std::os::unix::io::RawFd;
 use std::pin::Pin;
 
 use crate::operation::{OperationState, OperationType};
-use crate::registry::{RegisteredBuffer, RegisteredFd};
+use crate::registry::{FixedFile, RegisteredBuffer, RegisteredFd};
 
 /// Buffer type for operations.
 ///
@@ -36,6 +36,8 @@ pub enum FdType {
     Raw(RawFd),
     /// Registered file descriptor
     Registered(RegisteredFd),
+    /// Fixed file (accessed by index)
+    Fixed(FixedFile),
 }
 
 /// Type-safe operation with compile-time state tracking.
@@ -89,8 +91,7 @@ impl<'ring, 'buf, S: OperationState> Operation<'ring, 'buf, S> {
         match &self.fd {
             FdType::Raw(fd) => *fd,
             FdType::Registered(reg_fd) => reg_fd.raw_fd(),
+            FdType::Fixed(fixed_file) => fixed_file.raw_fd(),
         }
     }
-
-
 }

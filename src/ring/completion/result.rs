@@ -1,9 +1,9 @@
 //! Completion result types and utilities.
 
 use std::io;
-use std::pin::Pin;
 
-use crate::operation::{Completed, Operation};
+use crate::operation::{tracker::BufferOwnership, Completed, Operation, OperationType};
+use std::os::unix::io::RawFd;
 
 /// Result of a completed operation.
 ///
@@ -13,10 +13,18 @@ use crate::operation::{Completed, Operation};
 /// and the buffer ownership.
 #[derive(Debug)]
 pub struct CompletionResult<'ring, 'buf> {
-    /// The completed operation with its result
-    pub(super) operation: Operation<'ring, 'buf, Completed<io::Result<i32>>>,
+    /// The completed operation with its result (if using the future API)
+    pub(super) operation: Option<Operation<'ring, 'buf, Completed<io::Result<i32>>>>,
     /// Operation ID for tracking purposes
     pub(super) operation_id: u64,
+    /// Operation type
+    pub(super) op_type: OperationType,
+    /// File descriptor used
+    pub(super) fd: RawFd,
+    /// Operation result
+    pub(super) result: io::Result<i32>,
+    /// Buffer ownership (if any)
+    pub(super) buffer: Option<BufferOwnership>,
 }
 
 impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
@@ -29,9 +37,42 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
         operation: Operation<'ring, 'buf, Completed<io::Result<i32>>>,
         operation_id: u64,
     ) -> Self {
+        // Extract information from the operation
+        let op_type = operation.op_type();
+        let fd = operation.fd();
+        let result = match operation.result() {
+            Ok(bytes) => Ok(*bytes),
+            Err(e) => Err(io::Error::new(e.kind(), e.to_string())),
+        };
+
         Self {
-            operation,
+            operation: Some(operation),
             operation_id,
+            op_type,
+            fd,
+            result,
+            buffer: None,
+        }
+    }
+
+    /// Create a new completion result with buffer ownership.
+    ///
+    /// This is used by the polling API to create completion results
+    /// that include buffer ownership for proper cleanup.
+    pub(super) fn new_with_buffer(
+        operation_id: u64,
+        op_type: OperationType,
+        fd: RawFd,
+        result: io::Result<i32>,
+        buffer: Option<BufferOwnership>,
+    ) -> Self {
+        Self {
+            operation: None,
+            operation_id,
+            op_type,
+            fd,
+            result,
+            buffer,
         }
     }
 
@@ -47,6 +88,16 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     /// - The I/O operation result (bytes transferred or error)
     /// - The buffer (if one was used), returned for reuse
     ///
+    /// # Note
+    ///
+    /// **Current Limitation**: The current implementation always returns `None`
+    /// for buffer ownership because the API uses borrowed references rather than
+    /// owned buffers. This is a known limitation that affects the polling API.
+    ///
+    /// Future enhancements will add an owned buffer API that can properly transfer
+    /// buffer ownership in the polling API. For now, users retain ownership of
+    /// their buffers throughout the operation lifecycle.
+    ///
     /// # Example
     ///
     /// ```rust,no_run
@@ -57,10 +108,15 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     ///     Ok(bytes) => println!("Transferred {} bytes", bytes),
     ///     Err(e) => eprintln!("I/O error: {}", e),
     /// }
-    /// // Buffer can now be reused for another operation
+    /// // Note: buffer is currently always None due to the borrowed reference API
+    /// assert!(buffer.is_none());
+    /// // Users retain ownership of their original buffers
     /// ```
-    pub fn into_result(self) -> (io::Result<i32>, Option<Pin<&'buf mut [u8]>>) {
-        self.operation.into_result_with_buffer()
+    pub fn into_result(self) -> (io::Result<i32>, Option<BufferOwnership>) {
+        // Return the stored result and buffer ownership
+        // Currently self.buffer is always None due to the borrowed reference API
+        // This is a known limitation that will be addressed in future versions
+        (self.result, self.buffer)
     }
 
     /// Get a reference to the result without consuming the completion.
@@ -82,7 +138,11 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     /// ```
     #[inline]
     pub fn result(&self) -> &io::Result<i32> {
-        self.operation.result()
+        if let Some(ref operation) = self.operation {
+            operation.result()
+        } else {
+            &self.result
+        }
     }
 
     /// Get the operation ID.
@@ -109,7 +169,11 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     /// This can be useful for logging or debugging purposes.
     #[inline]
     pub fn fd(&self) -> std::os::unix::io::RawFd {
-        self.operation.fd()
+        if let Some(ref operation) = self.operation {
+            operation.fd()
+        } else {
+            self.fd
+        }
     }
 
     /// Get the operation type.
@@ -117,7 +181,11 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     /// Returns the type of I/O operation that was performed (read, write, etc.).
     #[inline]
     pub fn op_type(&self) -> crate::operation::OperationType {
-        self.operation.op_type()
+        if let Some(ref operation) = self.operation {
+            operation.op_type()
+        } else {
+            self.op_type
+        }
     }
 
     /// Check if this operation used a buffer.
@@ -127,7 +195,11 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     /// be returned when consuming the completion.
     #[inline]
     pub fn has_buffer(&self) -> bool {
-        self.operation.has_buffer()
+        if let Some(ref operation) = self.operation {
+            operation.has_buffer()
+        } else {
+            self.buffer.is_some()
+        }
     }
 
     /// Check if the operation was successful.

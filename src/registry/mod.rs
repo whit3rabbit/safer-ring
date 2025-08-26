@@ -38,10 +38,9 @@ use std::os::unix::io::RawFd;
 use std::pin::Pin;
 
 use crate::error::{Result, SaferRingError};
+use crate::ownership::OwnedBuffer;
 
 #[cfg(target_os = "linux")]
-use io_uring;
-
 #[cfg(test)]
 mod tests;
 
@@ -67,10 +66,18 @@ pub struct Registry<'ring> {
     registered_fds: Vec<Option<(RawFd, RegisteredFdInner)>>,
     /// Registered buffers with their pinned memory
     registered_buffers: Vec<Option<Pin<Box<[u8]>>>>,
+    /// Fixed files for optimized access by index
+    fixed_files: Vec<Option<RawFd>>,
+    /// Pre-registered buffer slots for kernel buffer selection
+    registered_buffer_slots: Vec<Option<OwnedBuffer>>,
     /// Set of file descriptor indices currently in use by operations
     fds_in_use: HashSet<u32>,
     /// Set of buffer indices currently in use by operations
     buffers_in_use: HashSet<u32>,
+    /// Set of fixed file indices currently in use by operations
+    fixed_files_in_use: HashSet<u32>,
+    /// Set of registered buffer slot indices currently in use
+    buffer_slots_in_use: HashSet<u32>,
     /// Whether the registry has been registered with io_uring
     #[allow(dead_code)]
     is_registered: bool,
@@ -131,8 +138,12 @@ impl<'ring> Registry<'ring> {
         Self {
             registered_fds: Vec::new(),
             registered_buffers: Vec::new(),
+            fixed_files: Vec::new(),
+            registered_buffer_slots: Vec::new(),
             fds_in_use: HashSet::new(),
             buffers_in_use: HashSet::new(),
+            fixed_files_in_use: HashSet::new(),
+            buffer_slots_in_use: HashSet::new(),
             is_registered: false,
             _phantom: PhantomData,
         }
@@ -580,6 +591,275 @@ impl<'ring> Registry<'ring> {
             _ => Err(SaferRingError::NotRegistered),
         }
     }
+
+    // Fixed Files API - Performance optimization for frequently used files
+
+    /// Register multiple files for optimized fixed-file operations.
+    ///
+    /// Fixed files are pre-registered with io_uring and accessed by index
+    /// instead of file descriptor, providing better performance for frequently
+    /// used files. This is particularly useful for applications that work with
+    /// a known set of files repeatedly.
+    ///
+    /// # Arguments
+    ///
+    /// * `fds` - Vector of file descriptors to register as fixed files
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of FixedFile handles in the same order as input.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use safer_ring::Registry;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut registry = Registry::new();
+    /// let fixed_files = registry.register_fixed_files(vec![0, 1, 2])?; // stdin, stdout, stderr
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn register_fixed_files(&mut self, fds: Vec<RawFd>) -> Result<Vec<FixedFile>> {
+        if fds.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Validate all file descriptors first
+        for &fd in &fds {
+            if fd < 0 {
+                return Err(SaferRingError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid file descriptor: {}", fd),
+                )));
+            }
+        }
+
+        // Clear existing fixed files if any
+        self.fixed_files.clear();
+        self.fixed_files_in_use.clear();
+
+        let mut fixed_files = Vec::new();
+
+        for (index, &fd) in fds.iter().enumerate() {
+            self.fixed_files.push(Some(fd));
+            fixed_files.push(FixedFile {
+                index: index as u32,
+                fd,
+            });
+        }
+
+        // TODO: Actually register with io_uring when integrated with Ring
+        // For now, we just track the registration locally
+
+        Ok(fixed_files)
+    }
+
+    /// Unregister all fixed files.
+    ///
+    /// This operation will fail if any fixed file is currently in use.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SaferRingError::BufferInFlight` if any fixed file is in use.
+    pub fn unregister_fixed_files(&mut self) -> Result<()> {
+        if !self.fixed_files_in_use.is_empty() {
+            return Err(SaferRingError::BufferInFlight);
+        }
+
+        self.fixed_files.clear();
+        // TODO: Actually unregister with io_uring when integrated with Ring
+
+        Ok(())
+    }
+
+    /// Get the number of fixed files registered.
+    pub fn fixed_file_count(&self) -> usize {
+        self.fixed_files
+            .iter()
+            .filter(|slot| slot.is_some())
+            .count()
+    }
+
+    /// Get the number of fixed files currently in use.
+    pub fn fixed_files_in_use_count(&self) -> usize {
+        self.fixed_files_in_use.len()
+    }
+
+    // Registered Buffer Slots API - For kernel buffer selection optimization
+
+    /// Register multiple buffer slots for kernel buffer selection.
+    ///
+    /// Registered buffer slots are pre-allocated buffers that the kernel
+    /// can select from during I/O operations. This provides the best performance
+    /// for high-throughput applications by eliminating the need to specify
+    /// buffer addresses in each operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `buffers` - Vector of owned buffers to register as selectable slots
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of RegisteredBufferSlot handles.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use safer_ring::{Registry, OwnedBuffer};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut registry = Registry::new();
+    /// let buffers = vec![
+    ///     OwnedBuffer::new(4096),
+    ///     OwnedBuffer::new(4096),
+    ///     OwnedBuffer::new(4096),
+    /// ];
+    /// let buffer_slots = registry.register_buffer_slots(buffers)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn register_buffer_slots(
+        &mut self,
+        buffers: Vec<OwnedBuffer>,
+    ) -> Result<Vec<RegisteredBufferSlot>> {
+        if buffers.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Clear existing buffer slots if any
+        self.registered_buffer_slots.clear();
+        self.buffer_slots_in_use.clear();
+
+        let mut buffer_slots = Vec::new();
+
+        for (index, buffer) in buffers.into_iter().enumerate() {
+            let size = buffer.size();
+            self.registered_buffer_slots.push(Some(buffer));
+            buffer_slots.push(RegisteredBufferSlot {
+                index: index as u32,
+                size,
+                in_use: false,
+            });
+        }
+
+        // TODO: Actually register with io_uring when integrated with Ring
+        // For now, we just track the registration locally
+
+        Ok(buffer_slots)
+    }
+
+    /// Unregister all buffer slots and return ownership of the buffers.
+    ///
+    /// This operation will fail if any buffer slot is currently in use.
+    ///
+    /// # Returns
+    ///
+    /// Returns the original owned buffers on successful unregistration.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SaferRingError::BufferInFlight` if any buffer slot is in use.
+    pub fn unregister_buffer_slots(&mut self) -> Result<Vec<OwnedBuffer>> {
+        if !self.buffer_slots_in_use.is_empty() {
+            return Err(SaferRingError::BufferInFlight);
+        }
+
+        let buffers = self.registered_buffer_slots.drain(..).flatten().collect();
+
+        // TODO: Actually unregister with io_uring when integrated with Ring
+
+        Ok(buffers)
+    }
+
+    /// Get the number of buffer slots registered.
+    pub fn buffer_slot_count(&self) -> usize {
+        self.registered_buffer_slots
+            .iter()
+            .filter(|slot| slot.is_some())
+            .count()
+    }
+
+    /// Get the number of buffer slots currently in use.
+    pub fn buffer_slots_in_use_count(&self) -> usize {
+        self.buffer_slots_in_use.len()
+    }
+
+    // Internal methods for tracking usage of fixed files and buffer slots
+
+    /// Mark a fixed file as in use by an operation.
+    #[allow(dead_code)]
+    pub(crate) fn mark_fixed_file_in_use(&mut self, fixed_file: &FixedFile) -> Result<()> {
+        let index = fixed_file.index as usize;
+
+        if index >= self.fixed_files.len() || self.fixed_files[index].is_none() {
+            return Err(SaferRingError::NotRegistered);
+        }
+
+        self.fixed_files_in_use.insert(fixed_file.index);
+        Ok(())
+    }
+
+    /// Mark a fixed file as no longer in use.
+    #[allow(dead_code)]
+    pub(crate) fn mark_fixed_file_not_in_use(&mut self, fixed_file: &FixedFile) {
+        self.fixed_files_in_use.remove(&fixed_file.index);
+    }
+
+    /// Mark a buffer slot as in use by an operation.
+    #[allow(dead_code)]
+    pub(crate) fn mark_buffer_slot_in_use(
+        &mut self,
+        buffer_slot: &RegisteredBufferSlot,
+    ) -> Result<()> {
+        let index = buffer_slot.index as usize;
+
+        if index >= self.registered_buffer_slots.len()
+            || self.registered_buffer_slots[index].is_none()
+        {
+            return Err(SaferRingError::NotRegistered);
+        }
+
+        self.buffer_slots_in_use.insert(buffer_slot.index);
+        Ok(())
+    }
+
+    /// Mark a buffer slot as no longer in use.
+    #[allow(dead_code)]
+    pub(crate) fn mark_buffer_slot_not_in_use(&mut self, buffer_slot: &RegisteredBufferSlot) {
+        self.buffer_slots_in_use.remove(&buffer_slot.index);
+    }
+
+    /// Get the raw file descriptor for a fixed file.
+    #[allow(dead_code)]
+    pub(crate) fn get_fixed_file_fd(&self, fixed_file: &FixedFile) -> Result<RawFd> {
+        let index = fixed_file.index as usize;
+
+        if index >= self.fixed_files.len() {
+            return Err(SaferRingError::NotRegistered);
+        }
+
+        match &self.fixed_files[index] {
+            Some(fd) if *fd == fixed_file.fd => Ok(*fd),
+            _ => Err(SaferRingError::NotRegistered),
+        }
+    }
+
+    /// Get a reference to a buffer in a registered slot.
+    #[allow(dead_code)]
+    pub(crate) fn get_buffer_slot(
+        &self,
+        buffer_slot: &RegisteredBufferSlot,
+    ) -> Result<&OwnedBuffer> {
+        let index = buffer_slot.index as usize;
+
+        if index >= self.registered_buffer_slots.len() {
+            return Err(SaferRingError::NotRegistered);
+        }
+
+        match &self.registered_buffer_slots[index] {
+            Some(buffer) if buffer.size() == buffer_slot.size => Ok(buffer),
+            _ => Err(SaferRingError::NotRegistered),
+        }
+    }
 }
 
 impl<'ring> Drop for Registry<'ring> {
@@ -588,11 +868,18 @@ impl<'ring> Drop for Registry<'ring> {
     /// This prevents resource leaks and ensures that all operations have
     /// completed before the registry is destroyed.
     fn drop(&mut self) {
-        if !self.fds_in_use.is_empty() || !self.buffers_in_use.is_empty() {
+        let total_in_use = self.fds_in_use.len()
+            + self.buffers_in_use.len()
+            + self.fixed_files_in_use.len()
+            + self.buffer_slots_in_use.len();
+
+        if total_in_use > 0 {
             panic!(
-                "Registry dropped with resources in use: {} fds, {} buffers",
+                "Registry dropped with resources in use: {} fds, {} buffers, {} fixed_files, {} buffer_slots",
                 self.fds_in_use.len(),
-                self.buffers_in_use.len()
+                self.buffers_in_use.len(),
+                self.fixed_files_in_use.len(),
+                self.buffer_slots_in_use.len()
             );
         }
     }
@@ -631,6 +918,63 @@ impl RegisteredBuffer {
     /// Returns the size in bytes of the registered buffer.
     pub fn size(&self) -> usize {
         self.size
+    }
+}
+
+/// Fixed file descriptor with optimized kernel access.
+///
+/// Fixed files are pre-registered with the kernel and accessed by index
+/// instead of file descriptor, providing better performance for frequently
+/// used files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FixedFile {
+    /// Index in the fixed file table
+    index: u32,
+    /// Original file descriptor for validation
+    fd: RawFd,
+}
+
+/// Registered buffer slot with optimized kernel access.
+///
+/// Registered buffers are pre-allocated and registered with the kernel,
+/// allowing operations to reference buffers by index instead of pointer
+/// for better performance.
+#[derive(Debug)]
+pub struct RegisteredBufferSlot {
+    /// Index in the registered buffer table
+    index: u32,
+    /// Size of the buffer slot
+    size: usize,
+    /// Whether this slot is currently in use
+    in_use: bool,
+}
+
+impl FixedFile {
+    /// Get the index of this fixed file.
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// Get the original file descriptor.
+    pub fn raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl RegisteredBufferSlot {
+    /// Get the index of this buffer slot.
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    /// Get the size of this buffer slot.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Check if this slot is currently in use.
+    pub fn is_in_use(&self) -> bool {
+        self.in_use
     }
 }
 

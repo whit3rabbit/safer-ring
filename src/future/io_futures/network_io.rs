@@ -18,7 +18,7 @@ use crate::ring::Ring;
 /// Returns the new client file descriptor when the accept completes.
 pub struct AcceptFuture<'ring> {
     operation: Option<Operation<'ring, 'static, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     waker_registry: Rc<WakerRegistry>,
     // No buffer lifetime needed for accept operations
     _phantom: PhantomData<&'ring ()>,
@@ -29,7 +29,7 @@ pub struct AcceptFuture<'ring> {
 /// Returns bytes sent and buffer ownership when the send completes.
 pub struct SendFuture<'ring, 'buf> {
     operation: Option<Operation<'ring, 'buf, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     waker_registry: Rc<WakerRegistry>,
     _phantom: PhantomData<(&'ring (), &'buf ())>,
 }
@@ -39,7 +39,7 @@ pub struct SendFuture<'ring, 'buf> {
 /// Returns bytes received and buffer ownership when the receive completes.
 pub struct RecvFuture<'ring, 'buf> {
     operation: Option<Operation<'ring, 'buf, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     waker_registry: Rc<WakerRegistry>,
     _phantom: PhantomData<(&'ring (), &'buf ())>,
 }
@@ -47,7 +47,7 @@ pub struct RecvFuture<'ring, 'buf> {
 impl<'ring> AcceptFuture<'ring> {
     pub(crate) fn new(
         operation: Operation<'ring, 'static, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {
@@ -62,7 +62,7 @@ impl<'ring> AcceptFuture<'ring> {
 impl<'ring, 'buf> SendFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {
@@ -77,7 +77,7 @@ impl<'ring, 'buf> SendFuture<'ring, 'buf> {
 impl<'ring, 'buf> RecvFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {
@@ -114,8 +114,7 @@ impl<'ring> Future for AcceptFuture<'ring> {
                         if fd >= 0 {
                             Poll::Ready(Ok(fd))
                         } else {
-                            Poll::Ready(Err(io::Error::new(
-                                io::ErrorKind::Other,
+                            Poll::Ready(Err(io::Error::other(
                                 "Accept returned invalid file descriptor",
                             )))
                         }
@@ -124,15 +123,16 @@ impl<'ring> Future for AcceptFuture<'ring> {
                 }
             }
             Ok(None) => {
-                self.waker_registry.register_waker(operation_id, cx.waker().clone());
+                self.waker_registry
+                    .register_waker(operation_id, cx.waker().clone());
                 Poll::Pending
             }
             Err(e) => {
                 self.waker_registry.remove_waker(operation_id);
-                Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    format!("Error checking accept completion: {}", e),
-                )))
+                Poll::Ready(Err(io::Error::other(format!(
+                    "Error checking accept completion: {}",
+                    e
+                ))))
             }
         }
     }

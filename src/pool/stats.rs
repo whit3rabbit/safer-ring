@@ -33,6 +33,12 @@ pub struct PoolStats {
     pub failed_allocations: u64,
     /// Current utilization as a ratio (0.0 to 1.0)
     pub utilization: f64,
+    /// Total number of buffers in the pool (same as capacity)
+    pub total_buffers: usize,
+    /// Number of buffers currently available (same as available)
+    pub available_buffers: usize,
+    /// Number of buffers currently in use (same as in_use)
+    pub in_use_buffers: usize,
 }
 
 impl PoolStats {

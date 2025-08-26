@@ -1,0 +1,25 @@
+error[E0597]: `buffer` does not live long enough
+  --> tests/compile-fail/batch_operation_lifetime.rs:13:21
+   |
+10 |         let mut buffer = PinnedBuffer::with_capacity(1024);
+   |             ---------- binding `buffer` declared here
+...
+13 |             .buffer(buffer.as_mut_slice());
+   |                     ^^^^^^ borrowed value does not live long enough
+...
+16 |     } // buffer dropped while still referenced in batch
+   |     - `buffer` dropped here while still borrowed
+...
+19 |     let _future = ring.submit_batch(batch);
+   |                                     ----- borrow later used here
+
+error[E0596]: cannot borrow `ring` as mutable, as it is not declared as mutable
+  --> tests/compile-fail/batch_operation_lifetime.rs:19:19
+   |
+19 |     let _future = ring.submit_batch(batch);
+   |                   ^^^^ cannot borrow as mutable
+   |
+help: consider changing this to be mutable
+   |
+6  |     let mut ring = Ring::new(10).unwrap();
+   |         +++

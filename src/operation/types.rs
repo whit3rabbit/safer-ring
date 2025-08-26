@@ -31,7 +31,12 @@ impl OperationType {
     #[inline]
     pub const fn requires_buffer(self) -> bool {
         match self {
-            Self::Read | Self::Write | Self::Send | Self::Recv | Self::ReadVectored | Self::WriteVectored => true,
+            Self::Read
+            | Self::Write
+            | Self::Send
+            | Self::Recv
+            | Self::ReadVectored
+            | Self::WriteVectored => true,
             Self::Accept => false,
         }
     }

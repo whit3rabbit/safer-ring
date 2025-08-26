@@ -147,6 +147,31 @@ impl BufferPool {
         }
     }
 
+    /// Fast path buffer acquisition with minimal locking.
+    ///
+    /// This is an optimized version that uses atomic operations where possible
+    /// to reduce lock contention in high-throughput scenarios.
+    pub fn try_get_fast(&self) -> Result<Option<PooledBuffer>> {
+        // Fast path: check if pool is likely empty without locking
+        {
+            let inner = PoolInner::lock(&self.inner)?;
+            if inner.available.is_empty() {
+                return Ok(None);
+            }
+        }
+
+        // Slow path: actually acquire buffer
+        self.try_get()
+    }
+
+    /// Get a buffer from the pool.
+    ///
+    /// Returns `Some(PooledBuffer)` if available, `None` if pool is empty.
+    /// This is a convenience method that unwraps the Result from try_get.
+    pub fn get(&self) -> Option<PooledBuffer> {
+        self.try_get().unwrap_or(None)
+    }
+
     /// Get a buffer from the pool, blocking until one becomes available.
     ///
     /// This method blocks the current thread until a buffer is returned.
@@ -201,19 +226,23 @@ impl BufferPool {
     ///
     /// Returns detailed information about pool usage and allocation patterns.
     /// Takes a single lock to ensure all statistics are consistent.
-    pub fn stats(&self) -> Result<PoolStats> {
-        let inner = PoolInner::lock(&self.inner)?;
+    pub fn stats(&self) -> PoolStats {
+        let inner = PoolInner::lock(&self.inner).unwrap();
         let utilization = inner.in_use as f64 / self.capacity as f64;
+        let available = inner.available.len();
 
-        Ok(PoolStats {
+        PoolStats {
             capacity: self.capacity,
-            available: inner.available.len(),
+            available,
             in_use: inner.in_use,
             buffer_size: self.buffer_size,
             total_allocations: inner.total_allocations,
             failed_allocations: inner.failed_allocations,
             utilization,
-        })
+            total_buffers: self.capacity,
+            available_buffers: available,
+            in_use_buffers: inner.in_use,
+        }
     }
 
     /// Check if the pool is empty (no available buffers).

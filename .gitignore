@@ -25,3 +25,9 @@ target
 
 # AI
 .claude
+
+# Logs
+*.log
+
+# Lock
+Cargo.lock

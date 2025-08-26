@@ -19,7 +19,7 @@ use crate::ring::Ring;
 pub struct ReadFuture<'ring, 'buf> {
     // Option allows taking ownership during completion without Clone
     operation: Option<Operation<'ring, 'buf, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     // Rc allows sharing waker registry across multiple futures efficiently
     waker_registry: Rc<WakerRegistry>,
     // Explicit lifetime tracking for compile-time safety verification
@@ -33,7 +33,7 @@ pub struct ReadFuture<'ring, 'buf> {
 pub struct WriteFuture<'ring, 'buf> {
     // Same structure as ReadFuture for consistency and shared macro usage
     operation: Option<Operation<'ring, 'buf, Submitted>>,
-    ring: &'ring Ring<'ring>,
+    ring: &'ring mut Ring<'ring>,
     waker_registry: Rc<WakerRegistry>,
     _phantom: PhantomData<(&'ring (), &'buf ())>,
 }
@@ -41,7 +41,7 @@ pub struct WriteFuture<'ring, 'buf> {
 impl<'ring, 'buf> ReadFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {
@@ -56,7 +56,7 @@ impl<'ring, 'buf> ReadFuture<'ring, 'buf> {
 impl<'ring, 'buf> WriteFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
-        ring: &'ring Ring<'ring>,
+        ring: &'ring mut Ring<'ring>,
         waker_registry: Rc<WakerRegistry>,
     ) -> Self {
         Self {

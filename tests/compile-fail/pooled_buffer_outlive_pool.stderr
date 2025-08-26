@@ -1,10 +1,26 @@
-error[E0597]: `pool` does not live long enough
-  --> tests/compile-fail/pooled_buffer_outlive_pool.rs:8:9
+error[E0596]: cannot borrow `ring` as mutable, as it is not declared as mutable
+  --> tests/compile-fail/pooled_buffer_outlive_pool.rs:13:19
    |
-8  |         pool.get().unwrap() // This buffer should not be able to outlive the pool
-   |         ^^^^ borrowed value does not live long enough
-9  |     };
-   |     - `pool` dropped here while still borrowed
+13 |     let _future = ring.read(0, buffer.as_mut_slice());
+   |                   ^^^^ cannot borrow as mutable
+   |
+help: consider changing this to be mutable
+   |
+6  |     let mut ring = Ring::new(10).unwrap();
+   |         +++
+
+error[E0597]: `buffer` does not live long enough
+  --> tests/compile-fail/pooled_buffer_outlive_pool.rs:13:32
+   |
+7  |     let mut buffer = {
+   |         ---------- binding `buffer` declared here
 ...
-12 |     let _future = ring.read(0, buffer.as_mut_slice());
-   |                                ------ borrow later used here
+13 |     let _future = ring.read(0, buffer.as_mut_slice());
+   |                                ^^^^^^ borrowed value does not live long enough
+14 | }
+   | -
+   | |
+   | `buffer` dropped here while still borrowed
+   | borrow might be used here, when `ring` is dropped and runs the `Drop` code for type `Ring`
+   |
+   = note: values in a scope are dropped in the opposite order they are defined
