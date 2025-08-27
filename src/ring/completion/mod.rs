@@ -123,20 +123,30 @@ impl<'ring> Ring<'ring> {
     ///
     /// Returns an error if the operation ID is not recognized or if there's
     /// a system error while checking completions.
-    pub fn try_complete_by_id(&mut self, _operation_id: u64) -> Result<Option<io::Result<i32>>> {
-        #[cfg(target_os = "linux")]
+    pub fn try_complete_by_id(&mut self, operation_id: u64) -> Result<Option<io::Result<i32>>> {
+        // Use the backend to check for completions
+        let completions = self.backend.borrow_mut().try_complete()?;
+
+        let mut target_result = None;
+
+        // Process all completions to avoid losing any
         {
-            // TODO: Fix completion queue access through backend
-            unimplemented!(
-                "Completion queue access needs to be implemented through backend interface"
-            );
+            let mut tracker = self.operations.borrow_mut();
+            for (completed_id, result) in completions {
+                // Remove completed operation from tracking
+                if let Some(_handle) = tracker.complete_operation(completed_id) {
+                    // Wake up any future waiting for this operation
+                    self.waker_registry.wake_operation(completed_id);
+
+                    // If this is the operation we're looking for, save the result
+                    if completed_id == operation_id {
+                        target_result = Some(result);
+                    }
+                }
+            }
         }
 
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = _operation_id; // Suppress unused parameter warning
-            Ok(None)
-        }
+        Ok(target_result)
     }
 
     /// Get completion queue statistics.
@@ -150,18 +160,7 @@ impl<'ring> Ring<'ring> {
     /// - `ready_count` is the number of completions ready to be processed
     /// - `capacity` is the total capacity of the completion queue
     pub fn completion_queue_stats(&mut self) -> (usize, usize) {
-        #[cfg(target_os = "linux")]
-        {
-            // TODO: Fix completion queue access through backend
-            unimplemented!(
-                "Completion queue access needs to be implemented through backend interface"
-            );
-        }
-
-        #[cfg(not(target_os = "linux"))]
-        {
-            (0, 0)
-        }
+        self.backend.borrow_mut().completion_queue_stats()
     }
 
     /// Process completions from the completion queue.

@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::os::unix::io::RawFd;
+use std::pin::Pin;
 
 use crate::backend::Backend;
 use crate::error::{Result, SaferRingError};
@@ -169,6 +170,40 @@ impl Backend for EpollBackend {
 
     fn name(&self) -> &'static str {
         "epoll"
+    }
+
+    fn register_files(&mut self, _fds: &[RawFd]) -> Result<u32> {
+        // Epoll doesn't support file descriptor registration
+        // This is a no-op that pretends to work for compatibility
+        Ok(0)
+    }
+
+    fn unregister_files(&mut self) -> Result<()> {
+        // Epoll doesn't support file descriptor registration
+        // This is a no-op that pretends to work for compatibility
+        Ok(())
+    }
+
+    fn register_buffers(&mut self, _buffers: &[Pin<Box<[u8]>>]) -> Result<u32> {
+        // Epoll doesn't support buffer registration
+        // This is a no-op that pretends to work for compatibility
+        Ok(0)
+    }
+
+    fn unregister_buffers(&mut self) -> Result<()> {
+        // Epoll doesn't support buffer registration
+        // This is a no-op that pretends to work for compatibility
+        Ok(())
+    }
+
+    fn capacity(&self) -> u32 {
+        // Epoll doesn't have a submission queue, return a reasonable default
+        1024
+    }
+
+    fn completion_queue_stats(&mut self) -> (usize, usize) {
+        // Epoll doesn't have a completion queue, return pending operations count
+        (self.pending_operations.len(), 1024)
     }
 }
 

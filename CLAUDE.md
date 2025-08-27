@@ -13,6 +13,8 @@ cargo clippy         # Run linter for code quality
 cargo fmt            # Format code
 ```
 
+For API documentation, see `docs/API.md`.
+
 ### Platform-Specific Testing
 The project uses conditional compilation for Linux vs non-Linux platforms:
 ```bash
@@ -35,15 +37,39 @@ cargo run --example file_copy
 
 ```
 src
-├── buffer.rs
+├── advanced
+│   ├── buffer_group.rs
+│   ├── config.rs
+│   ├── feature_detection.rs
+│   ├── mod.rs
+│   └── multi_shot.rs
+├── backend
+│   ├── epoll.rs
+│   ├── io_uring.rs
+│   └── mod.rs
+├── buffer
+│   ├── allocation.rs
+│   ├── generation.rs
+│   ├── mod.rs
+│   └── numa.rs
+├── compat.rs
+├── config.rs
 ├── error.rs
 ├── future
-│   ├── io_futures.rs
+│   ├── batch_future.rs
+│   ├── io_futures
+│   │   ├── common.rs
+│   │   ├── file_io.rs
+│   │   ├── mod.rs
+│   │   ├── network_io.rs
+│   │   └── vectored_io.rs
 │   ├── mod.rs
 │   ├── operation_future.rs
+│   ├── standalone_batch_future.rs
 │   ├── tests.rs
 │   └── waker.rs
 ├── lib.rs
+├── logging.rs
 ├── operation
 │   ├── building.rs
 │   ├── completed.rs
@@ -54,23 +80,40 @@ src
 │   ├── tests.rs
 │   ├── tracker.rs
 │   └── types.rs
+├── ownership.rs
+├── perf.rs
 ├── pool
 │   ├── buffer_pool.rs
 │   ├── mod.rs
 │   ├── pooled_buffer.rs
 │   ├── stats.rs
 │   └── tests.rs
-├── registry.rs
-└── ring
-    ├── completion
-    │   ├── mod.rs
-    │   └── result.rs
-    ├── core.rs
-    ├── mod.rs
-    ├── submission.rs
-    └── tests.rs
-
-6 directories, 29 files
+├── registry
+│   ├── mod.rs
+│   └── tests.rs
+├── ring
+│   ├── batch
+│   │   ├── config.rs
+│   │   ├── core.rs
+│   │   ├── mod.rs
+│   │   ├── result.rs
+│   │   └── validation.rs
+│   ├── completion
+│   │   ├── mod.rs
+│   │   └── result.rs
+│   ├── core
+│   │   ├── batch_operations.rs
+│   │   ├── configuration.rs
+│   │   ├── fixed_operations.rs
+│   │   ├── io_operations.rs
+│   │   ├── mod.rs
+│   │   ├── network_operations.rs
+│   │   ├── safe_operations.rs
+│   │   └── utility.rs
+│   ├── mod.rs
+│   └── tests.rs
+├── runtime.rs
+└── safety.rs
 ```
 
 ### Core Architecture Principles

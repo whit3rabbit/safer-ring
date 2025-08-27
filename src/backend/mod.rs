@@ -5,6 +5,7 @@
 
 use std::io;
 use std::os::unix::io::RawFd;
+use std::pin::Pin;
 
 use crate::error::Result;
 use crate::operation::OperationType;
@@ -36,6 +37,26 @@ pub trait Backend {
 
     /// Get backend name for debugging.
     fn name(&self) -> &'static str;
+
+    /// Register file descriptors for optimized access.
+    /// Returns the starting index where files were registered.
+    fn register_files(&mut self, fds: &[RawFd]) -> Result<u32>;
+
+    /// Unregister all registered file descriptors.
+    fn unregister_files(&mut self) -> Result<()>;
+
+    /// Register buffers for optimized access.
+    /// Returns the starting index where buffers were registered.
+    fn register_buffers(&mut self, buffers: &[Pin<Box<[u8]>>]) -> Result<u32>;
+
+    /// Unregister all registered buffers.
+    fn unregister_buffers(&mut self) -> Result<()>;
+
+    /// Get the capacity of the submission queue.
+    fn capacity(&self) -> u32;
+
+    /// Get completion queue statistics (ready count, total capacity).
+    fn completion_queue_stats(&mut self) -> (usize, usize);
 }
 
 /// Detect the best available backend for the current system.

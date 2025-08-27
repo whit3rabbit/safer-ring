@@ -3,7 +3,9 @@
 //! This test demonstrates the specific issue that was mentioned in the original
 //! batch_operations.rs test file and shows that it's now resolved.
 
+#[cfg(target_os = "linux")]
 use safer_ring::{Batch, Operation, PinnedBuffer, Ring, StandaloneBatchFuture};
+#[cfg(target_os = "linux")]
 use std::future::poll_fn;
 
 /// This test demonstrates the original lifetime problem and its solution.
@@ -21,13 +23,30 @@ async fn test_batch_lifetime_constraint_fix() {
 
     #[cfg(target_os = "linux")]
     {
+        // Declare buffers first to ensure they live long enough
+        let mut buffer1 = PinnedBuffer::with_capacity(1024);
+        let mut buffer2 = PinnedBuffer::with_capacity(1024);
+        let mut other_buffer = PinnedBuffer::with_capacity(512);
+
+        let mut ring = match Ring::new(32) {
+            Ok(r) => r,
+            Err(e) => {
+                println!(
+                    "Could not create ring (io_uring may not be available): {}",
+                    e
+                );
+                return;
+            }
+        };
+
         // This demonstrates the solution to the lifetime constraint problem
-        async fn demonstrate_fixed_api(
-            ring: &mut Ring<'_>,
+        async fn demonstrate_fixed_api<'a>(
+            ring: &mut Ring<'a>,
+            buffer1: &mut PinnedBuffer<[u8]>,
+            buffer2: &mut PinnedBuffer<[u8]>,
+            other_buffer: &mut PinnedBuffer<[u8]>,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let mut batch = Batch::new();
-            let mut buffer1 = PinnedBuffer::with_capacity(1024);
-            let mut buffer2 = PinnedBuffer::with_capacity(1024);
 
             // Add operations to the batch
             batch.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))?;
@@ -39,7 +58,6 @@ async fn test_batch_lifetime_constraint_fix() {
 
             // PROOF: We can now perform other operations on the same ring!
             // This was impossible with the original BatchFuture design
-            let mut other_buffer = PinnedBuffer::with_capacity(512);
             let _other_operation = ring.read(0, other_buffer.as_mut_slice())?;
 
             // Poll the batch future manually
@@ -61,18 +79,8 @@ async fn test_batch_lifetime_constraint_fix() {
             Ok(())
         }
 
-        let mut ring = match Ring::new(32) {
-            Ok(r) => r,
-            Err(e) => {
-                println!(
-                    "Could not create ring (io_uring may not be available): {}",
-                    e
-                );
-                return;
-            }
-        };
-
-        match demonstrate_fixed_api(&mut ring).await {
+        match demonstrate_fixed_api(&mut ring, &mut buffer1, &mut buffer2, &mut other_buffer).await
+        {
             Ok(()) => {
                 println!("✅ Successfully demonstrated the fix for batch lifetime constraints")
             }
@@ -92,6 +100,13 @@ async fn test_improved_batch_ergonomics() {
 
     #[cfg(target_os = "linux")]
     {
+        // Declare buffers first to ensure they live long enough
+        let mut buffer1 = PinnedBuffer::with_capacity(1024);
+        let mut buffer2 = PinnedBuffer::with_capacity(1024);
+        let mut buffer3 = PinnedBuffer::with_capacity(1024);
+        let mut buffer4 = PinnedBuffer::with_capacity(1024);
+        let mut single_buffer = PinnedBuffer::with_capacity(256);
+
         let mut ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
@@ -106,11 +121,6 @@ async fn test_improved_batch_ergonomics() {
         // Create multiple batches that can coexist
         let mut batch1 = Batch::new();
         let mut batch2 = Batch::new();
-
-        let mut buffer1 = PinnedBuffer::with_capacity(1024);
-        let mut buffer2 = PinnedBuffer::with_capacity(1024);
-        let mut buffer3 = PinnedBuffer::with_capacity(1024);
-        let mut buffer4 = PinnedBuffer::with_capacity(1024);
 
         if let Ok(_) = batch1.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))
         {
@@ -133,7 +143,6 @@ async fn test_improved_batch_ergonomics() {
                             .unwrap_or_else(|_| panic!("Should be able to submit second batch"));
 
                         // We can even submit individual operations while batches are in flight
-                        let mut single_buffer = PinnedBuffer::with_capacity(256);
                         let _single_op = ring.read(0, single_buffer.as_mut_slice());
 
                         println!(
@@ -174,7 +183,7 @@ async fn test_batch_performance_characteristics() {
 
         const BATCH_SIZE: usize = 10;
         let mut batch = Batch::new();
-        let mut buffers: Vec<PinnedBuffer> = Vec::new();
+        let mut buffers: Vec<PinnedBuffer<[u8]>> = Vec::new();
 
         // Create a batch with multiple operations
         for _ in 0..BATCH_SIZE {

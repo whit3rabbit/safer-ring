@@ -18,8 +18,7 @@ impl<'ring> Ring<'ring> {
     /// Get the capacity of the submission queue.
     #[cfg(target_os = "linux")]
     pub fn capacity(&mut self) -> u32 {
-        // TODO: Add capacity method to backend trait
-        1024 // Placeholder capacity
+        self.backend.borrow().capacity()
     }
 
     /// Get the capacity of the submission queue (stub for non-Linux).
@@ -48,8 +47,29 @@ impl<'ring> Ring<'ring> {
         // Check the completion queue for this operation
         #[cfg(target_os = "linux")]
         {
-            // TODO: Fix completion queue access through backend
-            Ok(None) // Placeholder implementation
+            // Use the backend to check for completions
+            let completions = self.backend.borrow_mut().try_complete()?;
+
+            // Look for the specific operation ID
+            for (completed_id, result) in completions {
+                if completed_id == _operation_id {
+                    // Found the completion, create a CompletionResult
+                    // Since we don't have the Operation object in this context, use new_with_buffer
+                    let completion_result = CompletionResult::new_with_buffer(
+                        _operation_id,
+                        crate::operation::OperationType::Read, // Default operation type
+                        0, // Default fd, not available in this context
+                        result,
+                        None, // No buffer ownership in this polling API context
+                    );
+                    return Ok(Some(completion_result));
+                }
+                // For other completed operations, wake their futures
+                self.waker_registry.wake_operation(completed_id);
+            }
+
+            // Operation not found in current completions
+            Ok(None)
         }
 
         #[cfg(not(target_os = "linux"))]

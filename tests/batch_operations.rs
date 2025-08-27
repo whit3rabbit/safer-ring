@@ -83,12 +83,12 @@ async fn test_single_operation_batch() {
     };
 
     // Poll the batch future using the new API
-    let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
+    let _result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
     // On non-Linux platforms, this should succeed with simulated results
     #[cfg(not(target_os = "linux"))]
     {
-        if let Ok(batch_result) = result {
+        if let Ok(batch_result) = _result {
             assert_eq!(batch_result.results.len(), 1);
             println!("✓ Single operation batch completed successfully");
         } else {
@@ -145,12 +145,12 @@ async fn test_multiple_operations_batch() {
         }
     };
 
-    let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
+    let _result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
     // On non-Linux platforms, should succeed
     #[cfg(not(target_os = "linux"))]
     {
-        if let Ok(batch_result) = result {
+        if let Ok(batch_result) = _result {
             assert_eq!(batch_result.results.len(), 2);
             println!("✓ Multiple operations batch completed successfully");
         } else {
@@ -337,11 +337,11 @@ async fn test_large_batch() {
         }
     };
 
-    let result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
+    let _result = std::future::poll_fn(|cx| batch_future.poll_with_ring(&mut ring, cx)).await;
 
     #[cfg(not(target_os = "linux"))]
     {
-        if let Ok(batch_result) = result {
+        if let Ok(batch_result) = _result {
             assert_eq!(batch_result.results.len(), 3);
             println!("✓ Large batch completed successfully");
         } else {

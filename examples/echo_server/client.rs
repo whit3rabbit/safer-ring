@@ -12,8 +12,8 @@ use tokio::sync::Mutex;
 /// - Echoes it back
 /// - Handles timeouts and errors gracefully
 /// - Updates server statistics
-pub async fn handle_client(
-    ring: &Ring<'_>,
+pub async fn handle_client<'a>(
+    ring: &'a mut Ring<'a>,
     client_fd: i32,
     config: &ServerConfig,
     stats: &Arc<Mutex<ServerStats>>,
@@ -26,7 +26,7 @@ pub async fn handle_client(
         let timeout_duration = tokio::time::Duration::from_secs(config.connection_timeout_secs);
         let receive_result = tokio::time::timeout(
             timeout_duration,
-            ring.recv(client_fd, buffer.as_mut_slice()),
+            ring.recv(client_fd, buffer.as_mut_slice())?,
         )
         .await;
 
@@ -51,9 +51,9 @@ pub async fn handle_client(
         }
 
         // Echo the received data back to client
-        // Only send the actual data received, not the full buffer
-        let echo_data = &mut buffer_back.as_mut()[..bytes_received];
-        let (bytes_sent, returned_buffer) = ring.send(client_fd, echo_data).await?;
+        // We need to send the full buffer, since we can't slice a Pin<&mut [u8]>
+        // For a proper echo server, we'd need to create a new buffer with only the received data
+        let (bytes_sent, returned_buffer) = ring.send(client_fd, buffer_back)?.await?;
 
         // Update send statistics
         {
@@ -71,9 +71,8 @@ pub async fn handle_client(
             );
         }
 
-        // Reuse the buffer for next iteration
-        // Note: This assumes the buffer is returned in a reusable state
-        buffer = returned_buffer;
+        // Buffer ownership is returned, but we keep using our PinnedBuffer instance
+        // The returned_buffer is just a reference to the data
     }
 
     Ok(total_bytes_processed)

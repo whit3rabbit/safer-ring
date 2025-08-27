@@ -378,21 +378,50 @@ impl<'ring> File<'ring> {
         }
     }
 
-    /// Create a new file (stub implementation).
+    /// Create a new file.
     ///
-    /// In a real implementation, this would open/create the file and return
-    /// a File instance with the appropriate file descriptor.
-    pub async fn create(_path: &str) -> Result<Self> {
-        Err(SaferRingError::Io(io::Error::other(
-            "File::create not implemented - demonstration only",
-        )))
+    /// Creates a new file or truncates an existing file for writing.
+    pub async fn create(ring: &'ring Ring<'ring>, path: &str) -> Result<Self> {
+        use std::ffi::CString;
+
+        let path_cstr = CString::new(path).map_err(|_| {
+            SaferRingError::Io(io::Error::new(io::ErrorKind::InvalidInput, "Invalid path"))
+        })?;
+
+        // Open file with create, write, truncate flags
+        let fd = unsafe {
+            libc::open(
+                path_cstr.as_ptr(),
+                libc::O_CREAT | libc::O_WRONLY | libc::O_TRUNC,
+                0o644,
+            )
+        };
+
+        if fd == -1 {
+            return Err(SaferRingError::Io(io::Error::last_os_error()));
+        }
+
+        Ok(Self::new(ring, fd))
     }
 
-    /// Open an existing file (stub implementation).
-    pub async fn open(_path: &str) -> Result<Self> {
-        Err(SaferRingError::Io(io::Error::other(
-            "File::open not implemented - demonstration only",
-        )))
+    /// Open an existing file.
+    ///
+    /// Opens an existing file for reading and writing.
+    pub async fn open(ring: &'ring Ring<'ring>, path: &str) -> Result<Self> {
+        use std::ffi::CString;
+
+        let path_cstr = CString::new(path).map_err(|_| {
+            SaferRingError::Io(io::Error::new(io::ErrorKind::InvalidInput, "Invalid path"))
+        })?;
+
+        // Open file for read/write
+        let fd = unsafe { libc::open(path_cstr.as_ptr(), libc::O_RDWR, 0) };
+
+        if fd == -1 {
+            return Err(SaferRingError::Io(io::Error::last_os_error()));
+        }
+
+        Ok(Self::new(ring, fd))
     }
 
     /// Sync all data to disk (stub implementation).
@@ -409,6 +438,14 @@ impl<'ring> File<'ring> {
     /// Get a reference to the underlying ring.
     pub fn ring(&self) -> &'ring Ring<'ring> {
         self.ring
+    }
+}
+
+impl<'ring> Drop for File<'ring> {
+    fn drop(&mut self) {
+        unsafe {
+            libc::close(self.fd);
+        }
     }
 }
 

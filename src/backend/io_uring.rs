@@ -2,6 +2,7 @@
 
 use std::io;
 use std::os::unix::io::RawFd;
+use std::pin::Pin;
 
 use crate::backend::Backend;
 use crate::error::{Result, SaferRingError};
@@ -129,6 +130,65 @@ impl Backend for IoUringBackend {
     fn name(&self) -> &'static str {
         "io_uring"
     }
+
+    fn register_files(&mut self, fds: &[RawFd]) -> Result<u32> {
+        if fds.is_empty() {
+            return Err(SaferRingError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Cannot register empty file descriptor list",
+            )));
+        }
+
+        // Use io_uring register_files API
+        self.ring.submitter().register_files(fds)?;
+        Ok(0) // io_uring registers at index 0
+    }
+
+    fn unregister_files(&mut self) -> Result<()> {
+        self.ring.submitter().unregister_files()?;
+        Ok(())
+    }
+
+    fn register_buffers(&mut self, buffers: &[Pin<Box<[u8]>>]) -> Result<u32> {
+        if buffers.is_empty() {
+            return Err(SaferRingError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Cannot register empty buffer list",
+            )));
+        }
+
+        // Convert pinned buffers to iovec structures for io_uring
+        let iovecs: Vec<libc::iovec> = buffers
+            .iter()
+            .map(|buffer| libc::iovec {
+                iov_base: buffer.as_ptr() as *mut libc::c_void,
+                iov_len: buffer.len(),
+            })
+            .collect();
+
+        // SAFETY: The iovecs are properly constructed from valid buffer pointers
+        // and the buffers remain pinned in memory for the duration of their use
+        unsafe {
+            self.ring.submitter().register_buffers(&iovecs)?;
+        }
+        Ok(0) // io_uring registers at index 0
+    }
+
+    fn unregister_buffers(&mut self) -> Result<()> {
+        self.ring.submitter().unregister_buffers()?;
+        Ok(())
+    }
+
+    fn capacity(&self) -> u32 {
+        self.ring.params().sq_entries()
+    }
+
+    fn completion_queue_stats(&mut self) -> (usize, usize) {
+        let capacity = self.ring.params().cq_entries() as usize;
+        let cq = self.ring.completion();
+        let ready = cq.len();
+        (ready, capacity)
+    }
 }
 
 /// Stub implementation for non-Linux platforms
@@ -180,5 +240,41 @@ impl Backend for IoUringBackend {
 
     fn name(&self) -> &'static str {
         "io_uring (unsupported)"
+    }
+
+    fn register_files(&mut self, _fds: &[RawFd]) -> Result<u32> {
+        Err(SaferRingError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "io_uring is only supported on Linux",
+        )))
+    }
+
+    fn unregister_files(&mut self) -> Result<()> {
+        Err(SaferRingError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "io_uring is only supported on Linux",
+        )))
+    }
+
+    fn register_buffers(&mut self, _buffers: &[Pin<Box<[u8]>>]) -> Result<u32> {
+        Err(SaferRingError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "io_uring is only supported on Linux",
+        )))
+    }
+
+    fn unregister_buffers(&mut self) -> Result<()> {
+        Err(SaferRingError::Io(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "io_uring is only supported on Linux",
+        )))
+    }
+
+    fn capacity(&self) -> u32 {
+        0
+    }
+
+    fn completion_queue_stats(&mut self) -> (usize, usize) {
+        (0, 0)
     }
 }

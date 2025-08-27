@@ -13,7 +13,7 @@ fn test_buffer_pool_invariants() {
     proptest!(|(
         pool_size in 1usize..=100,
         buffer_size in 64usize..=4096,
-        operations in prop::collection::vec(0usize..10, 1..50)
+        _operations in prop::collection::vec(0usize..10, 1..50)
     )| {
         rt.block_on(async {
             let pool = Arc::new(BufferPool::new(pool_size, buffer_size));
@@ -44,7 +44,9 @@ fn test_buffer_pool_invariants() {
 
             // Pool should be exhausted again
             prop_assert!(pool.get().is_none());
-        })
+
+            Ok(())
+        })?
     });
 }
 
@@ -89,7 +91,7 @@ fn test_concurrent_buffer_operations() {
             let pool = Arc::new(BufferPool::new(num_operations * 2, 1024));
             let mut handles = Vec::new();
 
-            for &size in &buffer_sizes[..std::cmp::min(buffer_sizes.len(), num_operations)] {
+            for &_size in &buffer_sizes[..std::cmp::min(buffer_sizes.len(), num_operations)] {
                 let pool_clone = Arc::clone(&pool);
                 let handle = tokio::spawn(async move {
                     // Get buffer from pool
@@ -97,9 +99,9 @@ fn test_concurrent_buffer_operations() {
 
                     if let Some(mut buf) = buffer {
                         // Simulate some work with the buffer
-                        let slice = buf.as_mut_slice();
+                        let mut slice = buf.as_mut_slice();
                         unsafe {
-                            let slice_mut = std::pin::Pin::get_unchecked_mut(slice);
+                            let slice_mut = std::pin::Pin::get_unchecked_mut(slice.as_mut());
                             for (i, byte) in slice_mut.iter_mut().enumerate() {
                                 *byte = (i % 256) as u8;
                             }
@@ -126,7 +128,7 @@ fn test_concurrent_buffer_operations() {
             prop_assert!(successful > 0);
 
             Ok(())
-        });
+        })?;
     });
 }
 
@@ -136,7 +138,7 @@ fn test_buffer_generation_tracking() {
     proptest!(|(
         operations in prop::collection::vec(1usize..=10, 1..20)
     )| {
-        let buffer = PinnedBuffer::with_capacity(1024);
+        let mut buffer = PinnedBuffer::with_capacity(1024);
         let initial_generation = buffer.generation();
 
         // Simulate multiple operation cycles

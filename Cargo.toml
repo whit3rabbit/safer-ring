@@ -66,7 +66,7 @@ unstable = []
 # Note: Some examples temporarily disabled due to API changes - will be updated in future releases
 # [[example]]
 # name = "echo_server"
-# path = "examples/echo_server.rs"
+# path = "examples/echo_server_main.rs"
 
 # [[example]]
 # name = "file_copy"
@@ -112,3 +112,7 @@ harness = false
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+# Configure loom for concurrency testing
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }

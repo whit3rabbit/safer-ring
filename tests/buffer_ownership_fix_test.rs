@@ -18,7 +18,7 @@ fn test_polling_api_buffer_ownership() {
     // Create a read operation using a borrowed buffer
     let operation = Operation::read()
         .fd(0) // stdin
-        .buffer(Pin::new(buffer.as_mut_slice()));
+        .buffer(buffer.as_mut_slice());
 
     // Submit the operation
     let submitted = match ring.submit(operation) {

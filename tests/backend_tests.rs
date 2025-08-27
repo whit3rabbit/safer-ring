@@ -3,11 +3,12 @@
 //! These tests ensure that the backend abstraction works properly and that
 //! the epoll fallback provides correct functionality when io_uring is unavailable.
 
-use safer_ring::backend::epoll::EpollBackend;
 use safer_ring::backend::{detect_backend, Backend};
+use safer_ring::backend::epoll::EpollBackend;
+#[cfg(target_os = "linux")]
 use safer_ring::operation::OperationType;
-use std::io::{self, Read, Write};
-use std::os::unix::io::AsRawFd;
+#[cfg(target_os = "linux")]
+use std::io;
 
 /// Test that backend detection works correctly
 #[test]

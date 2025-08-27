@@ -59,7 +59,7 @@ impl<'ring, 'buf> CompletionResult<'ring, 'buf> {
     ///
     /// This is used by the polling API to create completion results
     /// that include buffer ownership for proper cleanup.
-    pub(super) fn new_with_buffer(
+    pub(crate) fn new_with_buffer(
         operation_id: u64,
         op_type: OperationType,
         fd: RawFd,

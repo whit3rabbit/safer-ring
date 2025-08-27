@@ -4,7 +4,9 @@
 //! actual I/O operations, making them safe to run on any platform.
 //! Platform-specific tests are clearly marked and conditional.
 
-use safer_ring::{Batch, BatchConfig, Ring};
+#[cfg(not(target_os = "linux"))]
+use safer_ring::Ring;
+use safer_ring::{Batch, BatchConfig};
 
 /// Check if we're running on a platform with io_uring support
 fn is_linux_platform() -> bool {

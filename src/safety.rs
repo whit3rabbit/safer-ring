@@ -179,6 +179,17 @@ impl SafeOperation {
     pub fn buffer_size(&self) -> Option<usize> {
         self.buffer.as_ref().map(|b| b.size())
     }
+
+    /// Get buffer pointer and size for operation submission.
+    ///
+    /// Returns (ptr, size) tuple for the buffer by transferring ownership to kernel.
+    pub fn buffer_info(&self) -> Result<(*mut u8, usize)> {
+        if let Some(buffer) = &self.buffer {
+            buffer.give_to_kernel(self.submission_id)
+        } else {
+            Ok((std::ptr::null_mut(), 0))
+        }
+    }
 }
 
 impl Drop for SafeOperation {
@@ -257,6 +268,86 @@ impl<'ring> std::future::Future for SafeOperationFuture<'ring> {
             // Future was already completed or operation was taken
             Poll::Ready(Err(SaferRingError::Io(std::io::Error::other(
                 "Operation future polled after completion",
+            ))))
+        }
+    }
+}
+
+/// Future representing a safe accept operation.
+///
+/// This future resolves to `(bytes_transferred, buffer)` when the accept completes,
+/// but for accept operations, the useful result is extracted from the completion.
+pub struct SafeAcceptFuture<'ring> {
+    operation: Option<SafeOperation>,
+    ring: &'ring dyn CompletionChecker,
+    waker_registry: std::rc::Rc<crate::future::WakerRegistry>,
+}
+
+impl<'ring> SafeAcceptFuture<'ring> {
+    /// Create a new safe accept future.
+    pub(crate) fn new(
+        operation: SafeOperation,
+        ring: &'ring dyn CompletionChecker,
+        waker_registry: std::rc::Rc<crate::future::WakerRegistry>,
+    ) -> Self {
+        Self {
+            operation: Some(operation),
+            ring,
+            waker_registry,
+        }
+    }
+}
+
+impl<'ring> std::future::Future for SafeAcceptFuture<'ring> {
+    type Output = Result<(usize, OwnedBuffer)>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(mut operation) = self.operation.take() {
+            // If operation was marked as failed during creation, return error immediately
+            if operation.completed && operation.buffer.is_some() {
+                let _buffer = operation.buffer.take().unwrap();
+                return Poll::Ready(Err(SaferRingError::Io(std::io::Error::other(
+                    "Accept operation failed during submission",
+                ))));
+            }
+
+            // Check if the operation has completed
+            match self
+                .ring
+                .try_complete_safe_operation(operation.submission_id)
+            {
+                Ok(Some(completion_result)) => {
+                    // Operation completed - extract the buffer and return result
+                    operation.completed = true;
+                    let buffer = operation.buffer.take().ok_or_else(|| {
+                        SaferRingError::Io(std::io::Error::other(
+                            "Accept operation buffer missing after completion",
+                        ))
+                    })?;
+
+                    let bytes_transferred = completion_result.map_err(SaferRingError::Io)?;
+                    Poll::Ready(Ok((bytes_transferred as usize, buffer)))
+                }
+                Ok(None) => {
+                    // Operation still pending - store operation back and register waker
+                    let submission_id = operation.submission_id;
+                    self.operation = Some(operation);
+
+                    // Register the waker so it gets notified when the operation completes
+                    self.waker_registry
+                        .register_waker(submission_id, cx.waker().clone());
+
+                    Poll::Pending
+                }
+                Err(e) => {
+                    // Error checking for completion
+                    Poll::Ready(Err(e))
+                }
+            }
+        } else {
+            // Future was already completed or operation was taken
+            Poll::Ready(Err(SaferRingError::Io(std::io::Error::other(
+                "Accept future polled after completion",
             ))))
         }
     }

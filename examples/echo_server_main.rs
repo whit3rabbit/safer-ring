@@ -10,8 +10,10 @@
 //! Connect with: `telnet localhost 8080` or `nc localhost 8080`
 
 // Note: Using the echo_server module from the subdirectory
+#[path = "echo_server/mod.rs"]
+mod echo_server;
 use echo_server::{handle_client, ServerConfig, ServerStats};
-use safer_ring::Ring;
+use safer_ring::{PinnedBuffer, Ring};
 use std::net::TcpListener;
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
@@ -39,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Start statistics reporting task
-    let stats_clone = Arc::clone(&stats);
+    let stats_clone: Arc<tokio::sync::Mutex<ServerStats>> = Arc::clone(&stats);
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         loop {
@@ -66,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Accept and handle connections
     loop {
         // Handle new connections
-        match ring.accept(listener_fd).await {
+        match ring.accept(listener_fd)?.await {
             Ok(client_fd) => {
                 // Update statistics
                 {
@@ -148,7 +150,7 @@ async fn handle_client(
         // Receive data from the client with timeout handling
         let receive_result = tokio::time::timeout(
             tokio::time::Duration::from_secs(30),
-            ring.recv(client_fd, buffer.as_mut_slice()),
+            ring.recv(client_fd, buffer.as_mut_slice())?,
         )
         .await;
 
@@ -195,7 +197,7 @@ async fn handle_client(
         // Echo the data back to the client
         // We only send back the actual data received, not the full buffer
         let echo_slice = &mut buffer_back.as_mut()[..bytes_received];
-        let (bytes_sent, buffer_returned) = ring.send(client_fd, echo_slice).await?;
+        let (bytes_sent, buffer_returned) = ring.send(client_fd, echo_slice)?.await?;
 
         // Update send statistics
         {

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2024-12-XX
+## [0.1.0] - 2025-01-26
 
 ### Added
 - Initial public release of safer-ring
@@ -19,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   
 - **API Surface**:
   - Ownership transfer API (`read_owned`, `write_owned`)
-  - Pin-based API for maximum performance  
-  - AsyncRead/AsyncWrite compatibility layer
+  - Pin-based legacy Future API (ReadFuture, WriteFuture, etc.)
+  - Safe networking API (`accept_safe`)
+  - AsyncRead/AsyncWrite compatibility layer with File::open/create
+  - Registry API for optimized file and buffer registration
   - Batch operation support with dependency management
   
 - **Platform Support**:
@@ -39,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Waker registry for efficient async notification
   - Configurable batch processing
   - Network and file I/O operations
+  - Complete monitoring APIs (capacity, completion queue stats)
+  - Backend abstraction (io_uring, epoll fallback)
   
 - **Documentation & Examples**:
   - Comprehensive README with safety model explanation

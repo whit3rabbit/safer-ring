@@ -30,10 +30,12 @@
 //! - Error propagation in async contexts
 //! - Resource cleanup in async destructors
 
-use safer_ring::Ring;
+use safer_ring::{Batch, BufferPool, Operation, PinnedBuffer, Ring};
 use std::env;
+use std::fs::File;
+use std::io::Write;
 use std::time::Duration;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout, Instant};
 
 /// Configuration for the async demonstration
 #[derive(Debug)]
@@ -96,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "linux")]
     {
         // Create a ring for async operations
-        let ring = Ring::new(64)?;
+        let mut ring = Ring::new(64)?;
         println!("⚡ Created io_uring with {} entries", ring.capacity());
 
         // Run basic async patterns demo
@@ -166,7 +168,7 @@ async fn run_basic_async_demo(
             .buffer(buffer.as_mut_slice())
             .offset(0);
 
-        let (bytes_read, read_buffer) = ring.submit_read(read_op).await?;
+        let (bytes_read, read_buffer) = ring.submit_read(read_op)?.await?;
         println!(
             "      📖 Read {} bytes: {}",
             bytes_read,
@@ -181,7 +183,7 @@ async fn run_basic_async_demo(
             .buffer(write_buffer.as_mut_slice())
             .offset(bytes_read as u64);
 
-        let (bytes_written, _) = ring.submit_write(write_op).await?;
+        let (bytes_written, _) = ring.submit_write(write_op)?.await?;
         println!("      ✏️  Wrote {} bytes sequentially", bytes_written);
     } else {
         // Simulate operations without real files
@@ -203,7 +205,7 @@ async fn run_basic_async_demo(
             .buffer(buffer.as_mut_slice())
             .offset(0);
 
-        ring.submit_read(invalid_op).await
+        ring.submit_read(invalid_op)?.await
     }
     .await;
 
@@ -267,19 +269,19 @@ async fn run_concurrent_demo(
                     .fd(file1.as_raw_fd())
                     .buffer(buffer1.as_mut_slice())
                     .offset(0)
-            ),
+            )?,
             ring.submit_read(
                 Operation::read()
                     .fd(file2.as_raw_fd())
                     .buffer(buffer2.as_mut_slice())
                     .offset(0)
-            ),
+            )?,
             ring.submit_read(
                 Operation::read()
                     .fd(file3.as_raw_fd())
                     .buffer(buffer3.as_mut_slice())
                     .offset(0)
-            )
+            )?
         );
 
         let (bytes1, _) = result1?;
@@ -407,7 +409,7 @@ async fn run_batch_demo(
     if config.with_files {
         // Submit the batch and wait for completion
         let start_time = Instant::now();
-        let batch_result = ring.submit_batch(batch).await?;
+        let batch_result = ring.submit_batch(batch)?.await?;
         let batch_time = start_time.elapsed();
 
         println!("   📈 Batch results:");
