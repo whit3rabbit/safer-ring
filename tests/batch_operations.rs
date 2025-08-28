@@ -16,7 +16,6 @@ use safer_ring::{Batch, BatchConfig, Operation, PinnedBuffer, Ring};
 #[allow(unused_imports)]
 use std::pin::Pin;
 #[allow(unused_imports)]
-
 /// Check if we should skip io_uring specific functionality tests
 /// Returns true on non-Linux platforms where io_uring is not available
 fn should_skip_io_uring_tests() -> bool {

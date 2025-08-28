@@ -7,8 +7,7 @@
 //! 4. Safe buffer management
 
 use safer_ring::{
-    is_io_uring_available, Backend, OrphanTracker,
-    OwnedBuffer, Ring, Runtime, SafeOperation,
+    is_io_uring_available, Backend, OrphanTracker, OwnedBuffer, Ring, Runtime, SafeOperation,
 };
 
 #[tokio::main]
@@ -198,7 +197,7 @@ async fn demonstrate_cancellation_safety() -> Result<(), Box<dyn std::error::Err
 
     {
         let _future = operation; // Operations are already Futures, no need for into_future
-        // Future is dropped here - operation becomes orphaned
+                                 // Future is dropped here - operation becomes orphaned
     }
 
     // Check orphan count

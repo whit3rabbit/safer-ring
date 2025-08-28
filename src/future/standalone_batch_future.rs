@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::error::Result;
@@ -33,7 +33,7 @@ pub struct StandaloneBatchFuture {
     /// Fast lookup map: operation_id -> batch_index for O(1) completion matching
     id_to_index: HashMap<u64, usize>,
     /// Waker registry for async notification
-    waker_registry: Rc<WakerRegistry>,
+    waker_registry: Arc<WakerRegistry>,
 }
 
 impl StandaloneBatchFuture {
@@ -41,7 +41,7 @@ impl StandaloneBatchFuture {
     pub(crate) fn new(
         operation_ids: Vec<Option<u64>>,
         dependencies: HashMap<usize, Vec<usize>>,
-        waker_registry: Rc<WakerRegistry>,
+        waker_registry: Arc<WakerRegistry>,
         fail_fast: bool,
     ) -> Self {
         let operation_count = operation_ids.len();
@@ -70,6 +70,48 @@ impl StandaloneBatchFuture {
     ///
     /// This method allows the caller to provide Ring access only when polling,
     /// avoiding the lifetime constraint issues of holding a Ring reference.
+    /// This is the primary way to poll a `StandaloneBatchFuture` since the
+    /// standard `Future::poll` implementation cannot work without Ring access.
+    ///
+    /// # Arguments
+    ///
+    /// * `ring` - Mutable reference to the Ring for polling completions
+    /// * `cx` - Task context for waker registration and async coordination
+    ///
+    /// # Returns
+    ///
+    /// Returns `Poll::Ready(Ok(BatchResult))` when all operations complete,
+    /// `Poll::Pending` when operations are still in flight, or
+    /// `Poll::Ready(Err(error))` if polling encounters an error.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// # use safer_ring::{Ring, Batch, Operation, PinnedBuffer};
+    /// # use std::task::{Context, Poll, Waker};
+    /// # use std::future::Future;
+    /// # use std::pin::Pin;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut ring = Ring::new(32)?;
+    /// let mut batch = Batch::new();
+    /// let mut buffer = PinnedBuffer::with_capacity(1024);
+    ///
+    /// batch.add_operation(Operation::read().fd(0).buffer(buffer.as_mut_slice()))?;
+    /// let mut batch_future = ring.submit_batch_standalone(batch)?;
+    ///
+    /// // Poll the batch future manually with Ring access
+    /// let waker = Waker::noop();
+    /// let mut cx = Context::from_waker(&waker);
+    /// match batch_future.poll_with_ring(&mut ring, &mut cx) {
+    ///     Poll::Ready(Ok(results)) => {
+    ///         println!("Batch completed with {} results", results.results.len());
+    ///     }
+    ///     Poll::Pending => println!("Batch still in progress"),
+    ///     Poll::Ready(Err(e)) => println!("Batch failed: {}", e),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn poll_with_ring(
         &mut self,
         ring: &mut Ring<'_>,

@@ -13,7 +13,11 @@ use crate::backend::Backend;
 use crate::error::{Result, SaferRingError};
 use crate::operation::OperationType;
 
-/// Pending operation in the epoll backend
+/// Pending operation in the epoll backend.
+///
+/// Represents an I/O operation that has been submitted to the epoll
+/// backend but not yet completed. The operation is tracked until
+/// the corresponding file descriptor becomes ready for I/O.
 #[derive(Debug)]
 #[allow(dead_code)] // Fields used only in actual epoll implementation, not stub
 struct PendingOperation {
@@ -25,7 +29,31 @@ struct PendingOperation {
     user_data: u64,
 }
 
-/// epoll-based backend implementation for fallback support
+/// epoll-based backend implementation for fallback support.
+///
+/// This backend provides a compatible I/O interface using the traditional
+/// epoll mechanism available on Linux systems. While not as performant as
+/// io_uring, it offers broad compatibility and can serve as a fallback
+/// when io_uring is unavailable.
+///
+/// # Implementation Details
+///
+/// - Uses `EPOLLONESHOT` to ensure each operation triggers exactly once
+/// - Executes I/O operations synchronously when file descriptors are ready
+/// - Maintains internal tracking of pending operations
+/// - Provides compatibility shims for io_uring features (file/buffer registration)
+///
+/// # Performance Characteristics
+///
+/// - Higher syscall overhead compared to io_uring
+/// - No native support for registered files or buffers
+/// - Operations execute synchronously once file descriptors are ready
+/// - Still provides good performance for moderate I/O loads
+///
+/// # Resource Management
+///
+/// The backend automatically manages the epoll instance and cleans up
+/// file descriptor registrations when dropped.
 #[allow(dead_code)] // Fields used only in actual epoll implementation, not stub
 pub struct EpollBackend {
     epoll_fd: RawFd,
@@ -35,6 +63,30 @@ pub struct EpollBackend {
 
 impl EpollBackend {
     /// Create a new epoll backend.
+    ///
+    /// Creates a new epoll instance for managing I/O operations.
+    /// The epoll instance is created with `EPOLL_CLOEXEC` to prevent
+    /// inheritance by child processes.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new EpollBackend instance ready for operation submission.
+    ///
+    /// # Errors
+    ///
+    /// - Returns `Unsupported` on non-Linux platforms
+    /// - Returns `Io` errors if epoll creation fails (resource limits, etc.)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use safer_ring::backend::{epoll::EpollBackend, Backend};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let backend = EpollBackend::new()?;
+    /// println!("Created epoll backend: {}", backend.name());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new() -> Result<Self> {
         #[cfg(target_os = "linux")]
         {
@@ -209,7 +261,22 @@ impl Backend for EpollBackend {
 
 #[cfg(target_os = "linux")]
 impl EpollBackend {
-    /// Poll for ready file descriptors and execute operations
+    /// Poll for ready file descriptors and execute operations.
+    ///
+    /// Waits for file descriptors to become ready for I/O, then executes
+    /// the corresponding operations synchronously.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout_ms` - Timeout in milliseconds (-1 for blocking, 0 for non-blocking)
+    ///
+    /// # Returns
+    ///
+    /// Returns completed operations as (user_data, result) tuples.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Io` errors if epoll_wait fails or I/O operations encounter errors.
     fn poll_completions(&mut self, timeout_ms: i32) -> Result<Vec<(u64, io::Result<i32>)>> {
         const MAX_EVENTS: usize = 64;
         let mut events = Vec::with_capacity(MAX_EVENTS);
@@ -246,7 +313,24 @@ impl EpollBackend {
         Ok(completed)
     }
 
-    /// Execute a single I/O operation
+    /// Execute a single I/O operation.
+    ///
+    /// Performs the actual I/O operation using traditional system calls
+    /// once the file descriptor is ready. Handles different operation
+    /// types (read, write, send, recv, accept) with appropriate syscalls.
+    ///
+    /// # Arguments
+    ///
+    /// * `op` - The pending operation to execute
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes transferred or an I/O error.
+    ///
+    /// # Error Handling
+    ///
+    /// Converts system call return values into appropriate `io::Result`
+    /// values, handling errno translation and special cases like `EAGAIN`.
     fn execute_operation(&self, op: &PendingOperation) -> io::Result<i32> {
         match op.op_type {
             OperationType::Read => {

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::error::Result;
@@ -19,16 +19,16 @@ use crate::ring::Ring;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// # use safer_ring::{Ring, Batch, Operation, PinnedBuffer};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let ring = Ring::new(32)?;
+/// let mut ring = Ring::new(32)?;
 /// let mut batch = Batch::new();
 /// let mut buffer = PinnedBuffer::with_capacity(1024);
 ///
 /// batch.add_operation(Operation::read().fd(0).buffer(buffer.as_mut_slice()))?;
-///
 /// let results = ring.submit_batch(batch).await?;
+///
 /// println!("Batch completed with {} operations", results.results.len());
 /// # Ok(())
 /// # }
@@ -65,7 +65,7 @@ impl<'ring> BatchFuture<'ring> {
         operation_ids: Vec<Option<u64>>,
         dependencies: HashMap<usize, Vec<usize>>,
         ring: &'ring mut Ring<'ring>,
-        _waker_registry: Rc<WakerRegistry>,
+        _waker_registry: Arc<WakerRegistry>,
         fail_fast: bool,
     ) -> Self {
         let operation_count = operation_ids.len();

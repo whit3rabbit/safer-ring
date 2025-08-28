@@ -21,6 +21,19 @@ The core safety principle of `safer-ring` is the **ownership transfer model ("ho
 
 The `Ring` is the central struct for submitting and managing all io_uring operations.
 
+#### Method Usage and Lifetimes
+
+Most I/O methods on `Ring` (e.g., `read`, `write`, `send`, `recv`, `accept_safe`) take `&mut self` and return a `Future` that holds the mutable borrow of the `Ring` until it is awaited. This avoids internal locks for maximum performance but means:
+
+- You must await each operation before starting another on the same `Ring` instance (the "await-immediately" pattern).
+- For concurrency on the same `Ring`, either use `submit_batch_standalone` (see below) or spawn multiple tasks with appropriate ownership.
+
+> The `?.await?` pattern
+>
+> - The first `?` handles submission errors: `ring.method(...) -> Result<Future, Error>`.
+> - `.await` waits for the I/O to complete.
+> - The second `?` handles completion errors: `Future::Output -> Result<Success, Error>`.
+
 | Method                                                  | Description                                                                                                                              | Example Usage                                                                                                  |
 | ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `Ring::new(entries: u32)`                               | Creates a new `Ring` with a specified submission queue depth. Automatically detects the best backend.                                    | `let mut ring = Ring::new(128)?;`                                                                               |
@@ -28,11 +41,36 @@ The `Ring` is the central struct for submitting and managing all io_uring operat
 | `read_owned(fd, buffer: OwnedBuffer)`                   | **(Recommended)** Safely reads from a file descriptor. Takes ownership of the buffer and returns it upon completion.                       | `let (bytes, buf) = ring.read_owned(fd, buf).await?;`                                                           |
 | `write_owned(fd, buffer: OwnedBuffer)`                  | **(Recommended)** Safely writes to a file descriptor. Takes ownership of the buffer and returns it upon completion.                        | `let (bytes, buf) = ring.write_owned(fd, buf).await?;`                                                          |
 | `accept_safe(listening_fd)`                             | Safely accepts a new network connection. Returns a future that resolves to the new client file descriptor.                                 | `let client_fd = ring.accept_safe(listen_fd).await?;`                                                          |
-| `submit_batch_standalone(batch)`                        | Submits a batch of operations and returns a `StandaloneBatchFuture` that doesn't hold a reference to the ring, allowing for better composition. | `let mut future = ring.submit_batch_standalone(batch)?;`<br>`let res = poll_fn(\|cx\| future.poll_with_ring(&mut ring, cx)).await?;` |
-| `read(fd, buffer: Pin<&mut [u8]>)`                      | **(Advanced)** Low-level read using a pinned buffer slice. Requires careful lifetime management.                                         | `let (bytes, _) = ring.read(fd, p_buf.as_mut_slice()).await?;`                                                  |
-| `write(fd, buffer: Pin<&mut [u8]>)`                     | **(Advanced)** Low-level write using a pinned buffer slice.                                                                              | `let (bytes, _) = ring.write(fd, p_buf.as_mut_slice()).await?;`                                                 |
-| `send(fd, buffer: Pin<&mut [u8]>)`                      | **(Advanced)** Low-level send on a socket using a pinned buffer slice.                                                                   | `let (bytes, _) = ring.send(sock_fd, p_buf.as_mut_slice()).await?;`                                             |
-| `recv(fd, buffer: Pin<&mut [u8]>)`                      | **(Advanced)** Low-level receive on a socket using a pinned buffer slice.                                                                | `let (bytes, _) = ring.recv(sock_fd, p_buf.as_mut_slice()).await?;`                                             |
+| `submit_batch_standalone(batch)`                        | **(Recommended for composition)** Submits a batch and returns a `StandaloneBatchFuture` that **does not** hold a borrow of the ring. Useful when composing batches with other operations on the same `Ring`. The future must be polled with `poll_with_ring`. | `let mut future = ring.submit_batch_standalone(batch)?;`<br>`// You can still use \`ring\` here for other ops`<br>`let res = poll_fn(\|cx\| future.poll_with_ring(&mut ring, cx)).await?;` |
+| `read(fd, buffer: Pin<&mut [u8]>)`                      | **(Advanced)** Low-level read using a pinned buffer slice.<br><br>⚠️ <strong>Usage Note:</strong> Returns a `Future` that holds a mutable borrow of the `Ring`. You <strong>must</strong> `.await` it immediately before making other calls on the same `Ring` to release the borrow. The `?.await?` pattern is recommended for robust error handling. | <strong>Correct:</strong><br><br>```rust
+let (bytes, _) = ring.read(fd, p_buf.as_mut_slice())?.await?;
+```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
+// ERROR: `ring` is borrowed mutably by `future1`
+let future1 = ring.read(fd1, buf1)?;
+let future2 = ring.read(fd2, buf2)?; // borrow still held
+tokio::join!(future1, future2);
+``` |
+| `write(fd, buffer: Pin<&mut [u8]>)`                     | **(Advanced)** Low-level write using a pinned buffer slice.<br><br>⚠️ <strong>Usage Note:</strong> Returns a `Future` that holds a mutable borrow of the `Ring`. You <strong>must</strong> `.await` it immediately before making other calls on the same `Ring`. Use `?.await?` for robust error handling. | <strong>Correct:</strong><br><br>```rust
+let (bytes, _) = ring.write(fd, p_buf.as_mut_slice())?.await?;
+```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
+let future1 = ring.write(fd1, buf1)?;
+let future2 = ring.write(fd2, buf2)?; // `ring` still borrowed
+tokio::join!(future1, future2);
+``` |
+| `send(fd, buffer: Pin<&mut [u8]>)`                      | **(Advanced)** Low-level send on a socket using a pinned buffer slice.<br><br>⚠️ <strong>Usage Note:</strong> Returns a `Future` that holds a mutable borrow of the `Ring`. You <strong>must</strong> `.await` it immediately before other calls on the same `Ring`. | <strong>Correct:</strong><br><br>```rust
+let (sent, _) = ring.send(sock_fd, p_buf.as_mut_slice())?.await?;
+```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
+let f1 = ring.send(sock1, buf1)?;
+let f2 = ring.send(sock2, buf2)?; // borrow not released
+tokio::join!(f1, f2);
+``` |
+| `recv(fd, buffer: Pin<&mut [u8]>)`                      | **(Advanced)** Low-level receive on a socket using a pinned buffer slice.<br><br>⚠️ <strong>Usage Note:</strong> Returns a `Future` that holds a mutable borrow of the `Ring`. `.await` immediately to release the borrow before other calls. | <strong>Correct:</strong><br><br>```rust
+let (n, _) = ring.recv(sock_fd, p_buf.as_mut_slice())?.await?;
+```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
+let f1 = ring.recv(sock1, buf1)?;
+let f2 = ring.recv(sock2, buf2)?; // borrow not released
+tokio::join!(f1, f2);
+``` |
 | `get_buffer(size)`                                      | Gets a ring-managed `OwnedBuffer` from an internal pool (or allocates one).                                                              | `let buffer = ring.get_buffer(4096)?;`                                                                          |
 | `orphan_count()`                                        | Returns the number of currently tracked "orphaned" operations (cancelled futures). Useful for monitoring.                                | `println!("Orphans: {}", ring.orphan_count());`                                                                |
 

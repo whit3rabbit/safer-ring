@@ -20,8 +20,9 @@ async fn test_pinned_buffer_deallocation() {
             buffers.push(buffer);
         }
 
+
         // Use the buffers
-        for (_i, buffer) in buffers.iter().enumerate() {
+        for buffer in buffers.iter() {
             let slice = buffer.as_slice();
             // Just access the buffer to ensure it's used
             assert_eq!(slice.len(), 4096);
@@ -89,10 +90,14 @@ async fn test_buffer_pool_memory_management() {
     );
 }
 
-/// Test ring cleanup with no operations in flight
+/// Test ring cleanup with no operations in flight (Linux only)
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn test_ring_cleanup_no_leaks() {
     let ring_weak_ref = {
+        // Note: Ring is not Sync, so Arc usage here is not ideal for multi-threading
+        // This is for demonstration of memory management only
+        #[allow(clippy::arc_with_non_send_sync)]
         let ring = Arc::new(Ring::new(32).unwrap());
         let ring_weak = Arc::downgrade(&ring);
 
@@ -110,6 +115,18 @@ async fn test_ring_cleanup_no_leaks() {
         ring_weak_ref.upgrade().is_none(),
         "Ring was not deallocated"
     );
+}
+
+/// Non-Linux variant: verify Ring::new is unsupported
+#[cfg(not(target_os = "linux"))]
+#[tokio::test]
+async fn test_ring_cleanup_no_leaks() {
+    match Ring::new(32) {
+        Ok(_) => panic!("Ring creation should fail on non-Linux platforms"),
+        Err(e) => {
+            println!("Expected error on non-Linux platform: {}", e);
+        }
+    }
 }
 
 /// Test that operations properly clean up resources

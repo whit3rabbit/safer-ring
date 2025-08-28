@@ -12,6 +12,29 @@ use crate::operation::OperationType;
 use io_uring::{opcode, types, IoUring};
 
 /// io_uring-based backend for high-performance I/O.
+///
+/// This backend provides the highest performance I/O on Linux systems
+/// by using the io_uring interface introduced in Linux 5.1. It offers
+/// true asynchronous I/O with minimal syscall overhead and kernel-level
+/// batching of operations.
+///
+/// # Performance Benefits
+///
+/// - **Zero-copy I/O**: Direct data transfer between user and kernel space
+/// - **Batched syscalls**: Multiple operations submitted in a single syscall
+/// - **Registered resources**: Pre-registered files and buffers for faster access
+/// - **Kernel polling**: Optional kernel-side polling eliminates most syscalls
+///
+/// # Platform Support
+///
+/// Only available on Linux 5.1 or later. On other platforms, this struct
+/// exists but all operations will return `Unsupported` errors.
+///
+/// # Resource Management
+///
+/// The backend automatically manages submission and completion queues,
+/// tracking in-flight operations to prevent resource leaks and ensure
+/// proper cleanup on drop.
 #[cfg(target_os = "linux")]
 pub struct IoUringBackend {
     ring: IoUring,
@@ -21,6 +44,35 @@ pub struct IoUringBackend {
 #[cfg(target_os = "linux")]
 impl IoUringBackend {
     /// Create a new io_uring backend.
+    ///
+    /// Initializes a new io_uring instance with the specified queue capacity.
+    /// The actual capacity may be adjusted by the kernel to the nearest
+    /// power of two.
+    ///
+    /// # Arguments
+    ///
+    /// * `entries` - Desired capacity for submission and completion queues
+    ///
+    /// # Returns
+    ///
+    /// Returns a new IoUringBackend instance ready for operation submission.
+    ///
+    /// # Errors
+    ///
+    /// - Returns `Unsupported` on non-Linux platforms
+    /// - Returns `Io` errors if io_uring setup fails (insufficient permissions,
+    ///   kernel too old, resource limits exceeded)
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use safer_ring::backend::io_uring::IoUringBackend;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let backend = IoUringBackend::new(32)?;
+    /// println!("Created io_uring backend with capacity: {}", backend.capacity());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(entries: u32) -> Result<Self> {
         let ring = IoUring::new(entries)?;
         Ok(Self {
@@ -191,13 +243,29 @@ impl Backend for IoUringBackend {
     }
 }
 
-/// Stub implementation for non-Linux platforms
+/// Stub implementation for non-Linux platforms.
+///
+/// This provides a compile-time compatible interface for non-Linux platforms
+/// where io_uring is not available. All operations will return `Unsupported`
+/// errors, allowing code to compile but gracefully fail at runtime on
+/// incompatible platforms.
 #[cfg(not(target_os = "linux"))]
 pub struct IoUringBackend;
 
 #[cfg(not(target_os = "linux"))]
 impl IoUringBackend {
     /// Create a new io_uring backend (stub for non-Linux platforms).
+    ///
+    /// Always returns an `Unsupported` error since io_uring is not available
+    /// on non-Linux platforms.
+    ///
+    /// # Arguments
+    ///
+    /// * `_entries` - Ignored on non-Linux platforms
+    ///
+    /// # Errors
+    ///
+    /// Always returns `SaferRingError::Io` with `Unsupported` kind.
     pub fn new(_entries: u32) -> Result<Self> {
         Err(SaferRingError::Io(io::Error::new(
             io::ErrorKind::Unsupported,

@@ -3,8 +3,9 @@
 //! These tests ensure that the backend abstraction works properly and that
 //! the epoll fallback provides correct functionality when io_uring is unavailable.
 
-use safer_ring::backend::{detect_backend, Backend};
+use safer_ring::backend::detect_backend;
 use safer_ring::backend::epoll::EpollBackend;
+use safer_ring::backend::Backend;
 #[cfg(target_os = "linux")]
 use safer_ring::operation::OperationType;
 #[cfg(target_os = "linux")]

@@ -260,7 +260,8 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                 let fd = file.as_raw_fd();
 
                 let mut futures = Vec::new();
-                let mut buffers: Vec<PinnedBuffer<[u8]>> = (0..10).map(|_| PinnedBuffer::with_capacity(4096)).collect();
+                let mut buffers: Vec<PinnedBuffer<[u8]>> =
+                    (0..10).map(|_| PinnedBuffer::with_capacity(4096)).collect();
                 for (i, buffer) in buffers.iter_mut().enumerate() {
                     if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
                         futures.push(future);
@@ -297,7 +298,9 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
 
                         for i in 0..10 {
                             if let Some(mut buffer) = numa_pool.acquire_local() {
-                                if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
+                                if let Ok(future) =
+                                    ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64)
+                                {
                                     futures.push(future);
                                 }
                             }
@@ -325,7 +328,9 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
 
                     for i in 0..10 {
                         if let Some(mut buffer) = pool.acquire() {
-                            if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
+                            if let Ok(future) =
+                                ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64)
+                            {
                                 futures.push(future);
                             }
                         }

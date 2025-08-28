@@ -108,7 +108,7 @@ async fn demo_buffer_pool(
     }
     let direct_time = start.elapsed();
 
-    // Test buffer pool  
+    // Test buffer pool
     let start = Instant::now();
     let pool = BufferPool::new(100, 4096);
     for _i in 0..50 {

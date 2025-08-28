@@ -1,6 +1,6 @@
 //! Waker registry for managing async operation notifications.
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 use std::collections::HashMap;
 use std::task::Waker;
 
@@ -12,8 +12,8 @@ use std::task::Waker;
 #[derive(Debug, Default)]
 pub(crate) struct WakerRegistry {
     /// Map from operation ID to waker
-    /// Using RefCell for interior mutability in single-threaded async context
-    wakers: RefCell<HashMap<u64, Waker>>,
+    /// Using Mutex for interior mutability to support Arc sharing
+    wakers: Mutex<HashMap<u64, Waker>>,
 }
 
 impl WakerRegistry {
@@ -21,7 +21,7 @@ impl WakerRegistry {
     #[allow(dead_code)] // Used by ring initialization
     pub(crate) fn new() -> Self {
         Self {
-            wakers: RefCell::new(HashMap::new()),
+            wakers: Mutex::new(HashMap::new()),
         }
     }
 
@@ -30,7 +30,7 @@ impl WakerRegistry {
     /// If a waker already exists for this operation, it will be replaced.
     /// This is safe because futures should only be polled from one task.
     pub(crate) fn register_waker(&self, operation_id: u64, waker: Waker) {
-        self.wakers.borrow_mut().insert(operation_id, waker);
+        self.wakers.lock().unwrap().insert(operation_id, waker);
     }
 
     /// Wake a specific operation and remove its waker.
@@ -38,7 +38,7 @@ impl WakerRegistry {
     /// Returns `true` if a waker was found and woken, `false` otherwise.
     #[allow(dead_code)] // Used by completion processor
     pub(crate) fn wake_operation(&self, operation_id: u64) -> bool {
-        if let Some(waker) = self.wakers.borrow_mut().remove(&operation_id) {
+        if let Some(waker) = self.wakers.lock().unwrap().remove(&operation_id) {
             waker.wake();
             true
         } else {
@@ -50,7 +50,7 @@ impl WakerRegistry {
     ///
     /// Returns `true` if a waker was removed, `false` if none existed.
     pub(crate) fn remove_waker(&self, operation_id: u64) -> bool {
-        self.wakers.borrow_mut().remove(&operation_id).is_some()
+        self.wakers.lock().unwrap().remove(&operation_id).is_some()
     }
 
     /// Get the number of registered wakers.
@@ -58,7 +58,7 @@ impl WakerRegistry {
     /// Useful for debugging and monitoring async operation load.
     #[cfg(test)]
     pub(crate) fn waker_count(&self) -> usize {
-        self.wakers.borrow().len()
+        self.wakers.lock().unwrap().len()
     }
 
     /// Check if any wakers are registered.
@@ -66,7 +66,7 @@ impl WakerRegistry {
     /// More efficient than checking `waker_count() == 0`.
     #[cfg(test)]
     pub(crate) fn has_wakers(&self) -> bool {
-        !self.wakers.borrow().is_empty()
+        !self.wakers.lock().unwrap().is_empty()
     }
 }
 

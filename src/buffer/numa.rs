@@ -8,6 +8,46 @@ use std::path::Path;
 use crate::buffer::allocation::allocate_aligned_buffer;
 
 /// Allocates a buffer with NUMA affinity on Linux systems.
+///
+/// This function attempts to allocate memory on the specified NUMA node by
+/// temporarily binding the current thread to CPUs on that node during allocation.
+/// The Linux kernel's first-touch policy will then prefer to allocate memory
+/// locally to those CPUs.
+///
+/// # Arguments
+///
+/// * `size` - The size of the buffer to allocate in bytes
+/// * `numa_node` - The NUMA node to allocate on, or `None` for any node
+///
+/// # Returns
+///
+/// Returns a boxed slice containing the allocated buffer. The buffer is
+/// zero-initialized and page-aligned for optimal DMA performance.
+///
+/// # Fallback Behavior
+///
+/// If NUMA allocation fails or NUMA is not available on the system, this
+/// function falls back to regular page-aligned allocation using
+/// [`allocate_aligned_buffer`].
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::allocate_numa_buffer;
+///
+/// // Allocate on any NUMA node
+/// let buffer = allocate_numa_buffer(4096, None);
+/// assert_eq!(buffer.len(), 4096);
+///
+/// // Try to allocate on NUMA node 0
+/// let buffer = allocate_numa_buffer(8192, Some(0));
+/// assert_eq!(buffer.len(), 8192);
+/// ```
+///
+/// # Platform Notes
+///
+/// This function is only available on Linux. On other platforms, use the
+/// stub version which falls back to regular aligned allocation.
 #[cfg(target_os = "linux")]
 pub fn allocate_numa_buffer(size: usize, numa_node: Option<usize>) -> Box<[u8]> {
     match numa_node {
@@ -167,7 +207,35 @@ fn parse_cpu_list(cpulist: &str) -> Result<Vec<usize>, std::io::Error> {
     Ok(cpus)
 }
 
-/// Check if NUMA is available on the system.
+/// Checks if NUMA (Non-Uniform Memory Access) is available on the system.
+///
+/// This function determines NUMA availability by checking for the existence
+/// of `/sys/devices/system/node` and verifying that multiple NUMA nodes exist.
+/// A system is considered NUMA-capable if it has more than just "node0".
+///
+/// # Returns
+///
+/// Returns `true` if NUMA is available and the system has multiple nodes,
+/// `false` otherwise.
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::is_numa_available;
+///
+/// if is_numa_available() {
+///     println!("NUMA is available on this system");
+///     // Use NUMA-aware allocation
+/// } else {
+///     println!("NUMA not available, using regular allocation");
+///     // Fall back to regular allocation
+/// }
+/// ```
+///
+/// # Platform Notes
+///
+/// This function is only available on Linux. On other platforms, NUMA
+/// support is not available and the function will return `false`.
 #[cfg(target_os = "linux")]
 pub fn is_numa_available() -> bool {
     Path::new("/sys/devices/system/node").exists()
@@ -177,12 +245,67 @@ pub fn is_numa_available() -> bool {
 }
 
 /// Allocates a buffer with NUMA preference (stub for non-Linux platforms).
+///
+/// On non-Linux platforms, NUMA support is not available, so this function
+/// serves as a compatibility stub that falls back to regular page-aligned
+/// allocation regardless of the `numa_node` parameter.
+///
+/// # Arguments
+///
+/// * `size` - The size of the buffer to allocate in bytes
+/// * `_numa_node` - Ignored on non-Linux platforms
+///
+/// # Returns
+///
+/// Returns a boxed slice containing a page-aligned, zero-initialized buffer
+/// allocated using [`allocate_aligned_buffer`].
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::allocate_numa_buffer;
+///
+/// // On non-Linux platforms, numa_node parameter is ignored
+/// let buffer = allocate_numa_buffer(4096, Some(0));
+/// assert_eq!(buffer.len(), 4096);
+/// ```
 #[cfg(not(target_os = "linux"))]
 pub fn allocate_numa_buffer(size: usize, _numa_node: Option<usize>) -> Box<[u8]> {
     allocate_aligned_buffer(size)
 }
 
 /// Gets the NUMA node for the current CPU (Linux only).
+///
+/// This function determines which NUMA node the current thread is running on
+/// by examining `/proc/self/stat` and using the `getcpu` system call as a fallback.
+/// This information can be useful for making NUMA-aware allocation decisions.
+///
+/// # Returns
+///
+/// Returns `Some(node_id)` if the NUMA node can be determined, or `None` if
+/// the information is not available or an error occurs.
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::current_numa_node;
+///
+/// match current_numa_node() {
+///     Some(node) => println!("Currently running on NUMA node {}", node),
+///     None => println!("Could not determine current NUMA node"),
+/// }
+/// ```
+///
+/// # Implementation Notes
+///
+/// This function tries two methods:
+/// 1. Parse `/proc/self/stat` to get the current CPU, then determine its NUMA node
+/// 2. Use the `getcpu` system call directly (x86_64 only)
+///
+/// # Platform Notes
+///
+/// This function is only available on Linux. On other platforms, use the
+/// stub version which always returns `None`.
 #[cfg(target_os = "linux")]
 pub fn current_numa_node() -> Option<usize> {
     // Method 1: Try to get from /proc/self/stat
@@ -240,7 +363,36 @@ fn get_cpu_numa_node(cpu: usize) -> Result<usize, std::io::Error> {
     }
 }
 
-/// Get the number of NUMA nodes on the system.
+/// Gets the number of NUMA nodes on the system (Linux).
+///
+/// This function counts the number of NUMA nodes by examining the
+/// `/sys/devices/system/node` directory and counting entries that match
+/// the pattern `nodeN` where N is a digit.
+///
+/// # Returns
+///
+/// Returns the number of NUMA nodes detected on the system, or 1 if
+/// the NUMA information cannot be accessed (fallback assumption).
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::numa_node_count;
+///
+/// let count = numa_node_count();
+/// println!("System has {} NUMA nodes", count);
+///
+/// // Use for NUMA-aware allocation
+/// for node in 0..count {
+///     // Allocate buffers on each node
+/// }
+/// ```
+///
+/// # Implementation Notes
+///
+/// The function looks for directories matching `/sys/devices/system/node/nodeN`
+/// where N consists only of digits. This follows the Linux kernel's NUMA
+/// node naming convention.
 #[cfg(target_os = "linux")]
 pub fn numa_node_count() -> usize {
     if let Ok(entries) = fs::read_dir("/sys/devices/system/node") {
@@ -261,19 +413,69 @@ pub fn numa_node_count() -> usize {
     }
 }
 
-/// Get the number of NUMA nodes (non-Linux stub).
+/// Gets the number of NUMA nodes (non-Linux stub).
+///
+/// On non-Linux platforms, NUMA support is not available, so this function
+/// always returns 1, indicating a single uniform memory domain.
+///
+/// # Returns
+///
+/// Always returns 1 on non-Linux platforms.
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::numa_node_count;
+///
+/// let count = numa_node_count();
+/// // On non-Linux platforms, this will always be 1
+/// assert_eq!(count, 1);
+/// ```
 #[cfg(not(target_os = "linux"))]
 pub fn numa_node_count() -> usize {
     1
 }
 
-/// Check if NUMA is available on the system (non-Linux stub).
+/// Checks if NUMA is available on the system (non-Linux stub).
+///
+/// On non-Linux platforms, NUMA support is not available, so this function
+/// always returns `false`.
+///
+/// # Returns
+///
+/// Always returns `false` on non-Linux platforms.
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::is_numa_available;
+///
+/// // On non-Linux platforms, this will always be false
+/// assert!(!is_numa_available());
+/// ```
 #[cfg(not(target_os = "linux"))]
 pub fn is_numa_available() -> bool {
     false
 }
 
 /// Gets the NUMA node for the current CPU (non-Linux stub).
+///
+/// On non-Linux platforms, NUMA support is not available, so this function
+/// always returns `None` to indicate that the current NUMA node cannot
+/// be determined.
+///
+/// # Returns
+///
+/// Always returns `None` on non-Linux platforms.
+///
+/// # Examples
+///
+/// ```rust
+/// use safer_ring::buffer::current_numa_node;
+///
+/// // On non-Linux platforms, this will always be None
+/// assert_eq!(current_numa_node(), None);
+/// ```
 #[cfg(not(target_os = "linux"))]
 pub fn current_numa_node() -> Option<usize> {
     None

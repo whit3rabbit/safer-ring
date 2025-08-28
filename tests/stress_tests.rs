@@ -1,6 +1,6 @@
 //! Stress tests for high-throughput scenarios and resource management.
 
-use safer_ring::{BufferPool, PinnedBuffer, Ring};
+use safer_ring::{BufferPool, PinnedBuffer};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
@@ -175,7 +175,7 @@ async fn stress_test_ring_operations() {
 #[tokio::test]
 async fn stress_test_ring_operations() {
     use safer_ring::Ring;
-    
+
     // On non-Linux platforms, Ring::new should return an error
     match Ring::new(64) {
         Ok(_) => panic!("Ring creation should fail on non-Linux platforms"),

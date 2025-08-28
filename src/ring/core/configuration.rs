@@ -15,8 +15,6 @@ use std::cell::RefCell;
 #[cfg(target_os = "linux")]
 use std::marker::PhantomData;
 #[cfg(target_os = "linux")]
-use std::rc::Rc;
-#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
 
 impl<'ring> Ring<'ring> {
@@ -116,7 +114,7 @@ impl<'ring> Ring<'ring> {
                 )?)),
                 phantom: PhantomData,
                 operations: RefCell::new(OperationTracker::new()),
-                waker_registry: Rc::new(WakerRegistry::new()),
+                waker_registry: Arc::new(WakerRegistry::new()),
                 orphan_tracker: Arc::new(Mutex::new(OrphanTracker::new())),
             })
         }

@@ -118,7 +118,7 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
                             let start = Instant::now();
 
                             let handles: Vec<_> = (0..threads)
-                                .map(|thread_id| {
+                                .map(|_thread_id| {
                                     let tracker = tracker.clone();
                                     thread::spawn(move || {
                                         for i in 0..ops_per_thread {
@@ -171,7 +171,7 @@ fn bench_lock_granularity_comparison(c: &mut Criterion) {
 
     // Simulate the current approach (single lock)
     group.bench_function("single_global_lock", |b| {
-        let tracker = Arc::new(Mutex::new(OrphanTracker::new()));
+        let _tracker = Arc::new(Mutex::new(OrphanTracker::new()));
         let threads = 4;
         let ops_per_thread = 1000;
 
@@ -208,8 +208,8 @@ fn bench_lock_granularity_comparison(c: &mut Criterion) {
     // Simulate sharded approach (separate locks for different operations)
     group.bench_function("sharded_locks_simulation", |b| {
         // Simulate having separate locks for ID generation vs orphan tracking
-        let id_gen_lock = Arc::new(Mutex::new(0u64));
-        let orphan_lock = Arc::new(Mutex::new(
+        let _id_gen_lock = Arc::new(Mutex::new(0u64));
+        let _orphan_lock = Arc::new(Mutex::new(
             std::collections::HashMap::<u64, OwnedBuffer>::new(),
         ));
 

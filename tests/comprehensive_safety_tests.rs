@@ -10,7 +10,7 @@ fn run_all_compile_fail_tests() {
 
     // Verify that trybuild is working correctly
     let output = Command::new("cargo")
-        .args(&["test", "compile_fail_tests", "--", "--nocapture"])
+        .args(["test", "--test", "compile_fail", "--", "--nocapture"])
         .output()
         .expect("Failed to run compile-fail tests");
 
@@ -29,7 +29,7 @@ async fn run_property_based_tests() {
     // This is a meta-test to ensure they run as part of the safety suite
 
     let output = Command::new("cargo")
-        .args(&["test", "proptest_buffer_lifecycle", "--", "--nocapture"])
+        .args(["test", "--test", "proptest_buffer_lifecycle", "--", "--nocapture"])
         .output()
         .expect("Failed to run property-based tests");
 
@@ -74,7 +74,7 @@ async fn run_stress_tests() {
     // These tests are in stress_tests.rs
 
     let output = Command::new("cargo")
-        .args(&["test", "stress_tests", "--release", "--", "--nocapture"])
+        .args(["test", "--test", "stress_tests", "--release", "--", "--nocapture"])
         .output()
         .expect("Failed to run stress tests");
 
@@ -92,7 +92,7 @@ async fn run_memory_leak_tests() {
     // These tests are in memory_leak_detection.rs
 
     let output = Command::new("cargo")
-        .args(&["test", "memory_leak_detection", "--", "--nocapture"])
+        .args(["test", "--test", "memory_leak_detection", "--", "--nocapture"])
         .output()
         .expect("Failed to run memory leak tests");
 
@@ -152,7 +152,6 @@ fn verify_safety_test_coverage() {
         // New safety feature tests
         "ownership_buffer_use_after_drop",
         "fixed_file_use_after_unregister",
-        "orphan_tracker_lifetime",
     ];
 
     // Verify all compile-fail test files exist

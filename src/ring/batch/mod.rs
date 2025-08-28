@@ -12,8 +12,25 @@
 //! - `validation` - Dependency validation and cycle detection
 
 // Internal modules
+
+/// Configuration types for controlling batch submission behavior.
+///
+/// Contains `BatchConfig` for fine-tuning how batches are processed,
+/// including error handling strategies, size limits, and dependency enforcement.
 pub mod config;
+
+/// Core batch functionality and the main `Batch` type.
+///
+/// Contains the `Batch` struct for collecting operations and managing
+/// dependencies, along with methods for adding operations and configuring
+/// batch behavior.
 pub mod core;
+
+/// Result types for batch operations.
+///
+/// Contains `BatchResult` and `OperationResult` types that represent
+/// the outcomes of batch submissions, including success/failure information
+/// and detailed per-operation results.
 pub mod result;
 mod validation;
 

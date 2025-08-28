@@ -166,7 +166,7 @@ impl SafeOperation {
     pub(crate) fn into_future<'ring>(
         self,
         ring: &'ring dyn CompletionChecker,
-        waker_registry: std::rc::Rc<crate::future::WakerRegistry>,
+        waker_registry: std::sync::Arc<crate::future::WakerRegistry>,
     ) -> SafeOperationFuture<'ring> {
         SafeOperationFuture {
             operation: Some(self),
@@ -215,7 +215,7 @@ impl Drop for SafeOperation {
 pub struct SafeOperationFuture<'ring> {
     operation: Option<SafeOperation>,
     ring: &'ring dyn CompletionChecker,
-    waker_registry: std::rc::Rc<crate::future::WakerRegistry>,
+    waker_registry: std::sync::Arc<crate::future::WakerRegistry>,
 }
 
 impl<'ring> std::future::Future for SafeOperationFuture<'ring> {
@@ -280,7 +280,7 @@ impl<'ring> std::future::Future for SafeOperationFuture<'ring> {
 pub struct SafeAcceptFuture<'ring> {
     operation: Option<SafeOperation>,
     ring: &'ring dyn CompletionChecker,
-    waker_registry: std::rc::Rc<crate::future::WakerRegistry>,
+    waker_registry: std::sync::Arc<crate::future::WakerRegistry>,
 }
 
 impl<'ring> SafeAcceptFuture<'ring> {
@@ -288,7 +288,7 @@ impl<'ring> SafeAcceptFuture<'ring> {
     pub(crate) fn new(
         operation: SafeOperation,
         ring: &'ring dyn CompletionChecker,
-        waker_registry: std::rc::Rc<crate::future::WakerRegistry>,
+        waker_registry: std::sync::Arc<crate::future::WakerRegistry>,
     ) -> Self {
         Self {
             operation: Some(operation),

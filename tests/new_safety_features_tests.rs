@@ -9,13 +9,13 @@
 //! 6. NUMA support
 
 use safer_ring::{
-    get_environment_info, is_io_uring_available, AsyncReadAdapter, AsyncWriteAdapter, Backend,
-    EnvironmentInfo, OrphanTracker, OwnedBuffer, Registry, Ring,
-    Runtime, SafeOperation,
+    get_environment_info, is_io_uring_available, Backend, OrphanTracker, OwnedBuffer, Registry,
+    Ring, Runtime, SafeOperation,
 };
+
+#[cfg(target_os = "linux")]
+use safer_ring::{AsyncReadAdapter, AsyncWriteAdapter};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use tokio::time::timeout;
 
 mod ownership_transfer_tests {
     use super::*;
@@ -24,11 +24,11 @@ mod ownership_transfer_tests {
     async fn test_owned_buffer_creation_and_properties() {
         let buffer1 = OwnedBuffer::new(1024);
         assert_eq!(buffer1.size(), 1024);
-        assert!(buffer1.generation() >= 0);
+        // Generation is always non-negative by type (u64)
 
         let buffer2 = OwnedBuffer::from_slice(b"Hello, world!");
         assert_eq!(buffer2.size(), 13);
-        assert!(buffer2.generation() >= 0);
+        // Generation is always non-negative by type (u64)
         // Don't assume generations are unique as they might both be 0
     }
 
@@ -54,7 +54,7 @@ mod ownership_transfer_tests {
     #[tokio::test]
     async fn test_hot_potato_api_basic() -> Result<(), Box<dyn std::error::Error>> {
         // Create a ring (this may fail on non-Linux systems)
-        let mut ring = match Ring::new(32) {
+        let ring = match Ring::new(32) {
             Ok(ring) => ring,
             Err(_) => {
                 println!("Ring creation failed (expected on non-Linux), skipping hot potato test");
@@ -70,14 +70,14 @@ mod ownership_transfer_tests {
         // Using a pipe for a valid fd on Linux systems
         let mut pipe_fds = [-1; 2];
         let pipe_result = unsafe { libc::pipe(pipe_fds.as_mut_ptr()) };
-        
+
         if pipe_result == 0 {
             let read_fd = pipe_fds[0];
             // Close write end to make reads return EOF immediately
             unsafe { libc::close(pipe_fds[1]) };
-            
+
             let _read_future = ring.read_owned(read_fd, buffer);
-            
+
             // Clean up
             unsafe { libc::close(read_fd) };
         }
@@ -173,8 +173,8 @@ mod cancellation_safety_tests {
         }
 
         // Check orphan count (may or may not increase depending on implementation)
-        let orphan_count = orphan_tracker.lock().unwrap().orphan_count();
-        assert!(orphan_count >= 0); // Should always be non-negative
+        let _orphan_count = orphan_tracker.lock().unwrap().orphan_count();
+        // Orphan count is always non-negative by type
 
         // Test cleanup
         let cleaned = {
@@ -232,7 +232,7 @@ mod runtime_detection_tests {
     #[test]
     fn test_backend_selection() {
         // Test that backend can be determined
-        let runtime = Runtime::new().expect("Runtime creation should succeed");
+        let runtime = Runtime::auto_detect().expect("Runtime creation should succeed");
 
         match runtime.backend() {
             Backend::IoUring => {
@@ -246,12 +246,16 @@ mod runtime_detection_tests {
                 println!("Using epoll fallback backend");
                 // This is expected on non-Linux or older Linux systems
             }
+            Backend::Stub => {
+                println!("Using stub backend");
+                // This is expected on non-Linux systems or when io_uring is unavailable
+            }
         }
     }
 
     #[tokio::test]
     async fn test_runtime_fallback() {
-        let runtime = Runtime::new().expect("Runtime should be created with fallback");
+        let runtime = Runtime::auto_detect().expect("Runtime should be created with fallback");
 
         // Runtime should work regardless of backend
         println!("Runtime backend: {:?}", runtime.backend());
@@ -271,11 +275,11 @@ mod registry_tests {
     #[test]
     fn test_registry_creation() {
         let registry = Registry::new();
-        println!("Registry created successfully: {:?}", registry);
+        println!("Registry created successfully");
 
         // Test basic registry functionality
         assert_eq!(registry.fixed_file_count(), 0);
-        assert_eq!(registry.registered_buffer_count(), 0);
+        assert_eq!(registry.buffer_count(), 0);
     }
 
     #[cfg(target_os = "linux")]
@@ -315,7 +319,7 @@ mod registry_tests {
     }
 
     #[cfg(not(target_os = "linux"))]
-    #[tokio::test] 
+    #[tokio::test]
     async fn test_fixed_files_integration() -> Result<(), Box<dyn std::error::Error>> {
         println!("Fixed files not supported on non-Linux platforms");
         Ok(())
@@ -323,7 +327,8 @@ mod registry_tests {
 }
 
 mod async_adapter_tests {
-    use super::*;
+    #[cfg(target_os = "linux")]
+    use safer_ring::{AsyncReadAdapter, AsyncWriteAdapter, Ring};
 
     #[cfg(target_os = "linux")]
     #[tokio::test]
@@ -339,7 +344,7 @@ mod async_adapter_tests {
         // Use a pipe for testing
         let mut pipe_fds = [-1; 2];
         let pipe_result = unsafe { libc::pipe(pipe_fds.as_mut_ptr()) };
-        
+
         if pipe_result != 0 {
             println!("Failed to create pipe, skipping test");
             return Ok(());
@@ -351,7 +356,11 @@ mod async_adapter_tests {
         // Write some test data
         let test_data = b"Hello, AsyncRead!";
         unsafe {
-            libc::write(write_fd, test_data.as_ptr() as *const libc::c_void, test_data.len());
+            libc::write(
+                write_fd,
+                test_data.as_ptr() as *const libc::c_void,
+                test_data.len(),
+            );
             libc::close(write_fd);
         }
 
@@ -379,7 +388,7 @@ mod async_adapter_tests {
         // Create pipe for testing
         let mut pipe_fds = [-1; 2];
         let pipe_result = unsafe { libc::pipe(pipe_fds.as_mut_ptr()) };
-        
+
         if pipe_result != 0 {
             println!("Failed to create pipe, skipping test");
             return Ok(());
@@ -415,7 +424,7 @@ mod async_adapter_tests {
         // Create pipes for full duplex testing
         let mut read_pipe = [-1; 2];
         let mut write_pipe = [-1; 2];
-        
+
         unsafe {
             if libc::pipe(read_pipe.as_mut_ptr()) != 0 || libc::pipe(write_pipe.as_mut_ptr()) != 0 {
                 println!("Failed to create pipes, skipping test");
@@ -469,24 +478,23 @@ mod numa_support_tests {
         // Test NUMA detection if available
         // This is a placeholder since NUMA support may not be fully implemented
         println!("NUMA support detection test - placeholder");
-        
+
         // In a real implementation, this might test:
         // - NUMA node detection
         // - Memory allocation on specific nodes
         // - Buffer affinity settings
-        
+
         // For now, just verify the test infrastructure works
-        assert!(true);
+        // Test placeholder - remove when actual functionality is implemented
     }
 
     #[tokio::test]
     async fn test_numa_aware_operations() {
         println!("NUMA-aware operations test - placeholder");
-        
+
         // This would test NUMA-aware buffer allocation and operation placement
         // when the feature is fully implemented
-        
-        assert!(true);
+        // Test placeholder - remove when actual functionality is implemented
     }
 }
 
@@ -501,13 +509,13 @@ async fn test_comprehensive_safety_integration() -> Result<(), Box<dyn std::erro
     println!("io_uring available: {}", is_available);
 
     // Test runtime creation with fallback
-    let _runtime = Runtime::new()?;
+    let _runtime = Runtime::auto_detect()?;
 
     // Test ring creation (may fallback to epoll)
     let ring_result = Ring::new(32);
     match ring_result {
         Ok(ring) => {
-            println!("Ring created with backend: {:?}", ring.backend());
+            println!("Ring created successfully");
             assert_eq!(ring.orphan_count(), 0);
         }
         Err(e) => {
@@ -521,7 +529,10 @@ async fn test_comprehensive_safety_integration() -> Result<(), Box<dyn std::erro
 
     // Test orphan tracker
     let tracker = OrphanTracker::new();
-    println!("OrphanTracker created with {} orphans", tracker.orphan_count());
+    println!(
+        "OrphanTracker created with {} orphans",
+        tracker.orphan_count()
+    );
 
     println!("Comprehensive safety integration test completed");
     Ok(())

@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 /// Runtime statistics for the echo server.
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 pub struct ServerStats {
     pub connections_accepted: u64,
     pub bytes_received: u64,
@@ -14,28 +15,33 @@ pub struct ServerStats {
 
 impl ServerStats {
     /// Increment connection count and active connections atomically.
+    #[allow(dead_code)]
     pub fn connection_accepted(&mut self) {
         self.connections_accepted += 1;
         self.active_connections += 1;
     }
 
     /// Decrement active connections.
+    #[allow(dead_code)]
     pub fn connection_closed(&mut self) {
         self.active_connections = self.active_connections.saturating_sub(1);
     }
 
     /// Add to bytes received counter.
+    #[allow(dead_code)]
     pub fn bytes_received(&mut self, bytes: usize) {
         self.bytes_received += bytes as u64;
     }
 
     /// Add to bytes sent counter.
+    #[allow(dead_code)]
     pub fn bytes_sent(&mut self, bytes: usize) {
         self.bytes_sent += bytes as u64;
     }
 }
 
 /// Start a background task that periodically prints server statistics.
+#[allow(dead_code)]
 pub fn start_stats_reporter(stats: Arc<Mutex<ServerStats>>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));

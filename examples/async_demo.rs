@@ -30,13 +30,10 @@
 //! - Error propagation in async contexts
 //! - Resource cleanup in async destructors
 
-use safer_ring::{Batch, BufferPool, Operation, PinnedBuffer, Ring};
+use safer_ring::Ring;
 use std::env;
-use std::fs::File;
-use std::io::Write;
-use std::pin::Pin;
-use std::time::{Duration, Instant};
-use tokio::time::{sleep, timeout};
+use std::time::Duration;
+use tokio::time::sleep;
 
 /// Configuration for the async demonstration
 #[derive(Debug)]

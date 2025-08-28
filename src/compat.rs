@@ -674,8 +674,9 @@ mod tests {
     #[test]
     fn test_adapter_buffer_size() {
         // Test that ADAPTER_BUFFER_SIZE is reasonable
-        assert!(ADAPTER_BUFFER_SIZE > 0, "Buffer size must be positive");
-        assert!(
+        // Note: These are compile-time constants, so these assertions will be optimized out
+        const _: () = assert!(ADAPTER_BUFFER_SIZE > 0, "Buffer size must be positive");
+        const _: () = assert!(
             ADAPTER_BUFFER_SIZE <= 65536,
             "Buffer size should be reasonable"
         ); // Reasonable upper bound

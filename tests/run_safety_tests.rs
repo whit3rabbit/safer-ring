@@ -6,7 +6,7 @@ use std::process::Command;
 #[test]
 fn run_compile_fail_tests() {
     let output = Command::new("cargo")
-        .args(&["test", "--test", "compile_fail"])
+        .args(["test", "--test", "compile_fail"])
         .output()
         .expect("Failed to run compile-fail tests");
 

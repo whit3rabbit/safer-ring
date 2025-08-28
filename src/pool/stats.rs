@@ -56,6 +56,9 @@ impl PoolStats {
     ///     total_allocations: 100,
     ///     failed_allocations: 5,
     ///     utilization: 0.7,
+    ///     total_buffers: 10,
+    ///     available_buffers: 3,
+    ///     in_use_buffers: 7,
     /// };
     /// assert_eq!(stats.utilization_percent(), 70.0);
     /// ```
@@ -66,6 +69,25 @@ impl PoolStats {
     /// Get the success rate of allocations as a percentage (0.0 to 100.0).
     ///
     /// Returns 100.0 if no allocation attempts have been made.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use safer_ring::pool::PoolStats;
+    /// let stats = PoolStats {
+    ///     capacity: 10,
+    ///     available: 5,
+    ///     in_use: 5,
+    ///     buffer_size: 4096,
+    ///     total_allocations: 95,
+    ///     failed_allocations: 5,
+    ///     utilization: 0.5,
+    ///     total_buffers: 10,
+    ///     available_buffers: 5,
+    ///     in_use_buffers: 5,
+    /// };
+    /// assert_eq!(stats.success_rate_percent(), 95.0);
+    /// ```
     pub fn success_rate_percent(&self) -> f64 {
         let total_attempts = self.total_allocations + self.failed_allocations;
         if total_attempts == 0 {
@@ -76,6 +98,21 @@ impl PoolStats {
     }
 
     /// Get the total memory allocated by the pool in bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use safer_ring::pool::PoolStats;
+    /// let stats = PoolStats {
+    ///     capacity: 10,
+    ///     buffer_size: 4096,
+    ///     // ... other fields
+    ///     # available: 5, in_use: 5, total_allocations: 100,
+    ///     # failed_allocations: 0, utilization: 0.5,
+    ///     # total_buffers: 10, available_buffers: 5, in_use_buffers: 5,
+    /// };
+    /// assert_eq!(stats.total_memory_bytes(), 40960); // 10 * 4096
+    /// ```
     pub fn total_memory_bytes(&self) -> usize {
         self.capacity * self.buffer_size
     }
@@ -88,6 +125,27 @@ impl PoolStats {
     /// Check if the pool is under high pressure (utilization > 80%).
     ///
     /// This can be used to trigger alerts or scaling decisions.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use safer_ring::pool::PoolStats;
+    /// let high_pressure = PoolStats {
+    ///     utilization: 0.85, // 85% utilization
+    ///     # capacity: 10, available: 2, in_use: 8, buffer_size: 4096,
+    ///     # total_allocations: 100, failed_allocations: 0,
+    ///     # total_buffers: 10, available_buffers: 2, in_use_buffers: 8,
+    /// };
+    /// assert!(high_pressure.is_under_pressure());
+    ///
+    /// let normal_pressure = PoolStats {
+    ///     utilization: 0.60, // 60% utilization
+    ///     # capacity: 10, available: 4, in_use: 6, buffer_size: 4096,
+    ///     # total_allocations: 100, failed_allocations: 0,
+    ///     # total_buffers: 10, available_buffers: 4, in_use_buffers: 6,
+    /// };
+    /// assert!(!normal_pressure.is_under_pressure());
+    /// ```
     pub fn is_under_pressure(&self) -> bool {
         self.utilization > 0.8
     }

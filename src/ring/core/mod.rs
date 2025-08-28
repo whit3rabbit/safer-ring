@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use crate::backend::{detect_backend, Backend};
@@ -13,12 +12,48 @@ use crate::operation::{Building, Operation};
 use crate::safety::{CompletionChecker, OrphanTracker, SubmissionId};
 
 // Re-export module implementations
+
+/// Batch operation submission and management for the Ring.
+///
+/// Contains methods for submitting multiple operations together as batches,
+/// improving performance by reducing syscall overhead and enabling complex
+/// operation dependencies.
 pub mod batch_operations;
+
+/// Ring configuration and setup functionality.
+///
+/// Contains methods for configuring Ring behavior, including queue depths,
+/// backend selection, and performance tuning options.
 pub mod configuration;
+
+/// Fixed-size I/O operations with compile-time known buffer sizes.
+///
+/// Contains optimized implementations for I/O operations where buffer sizes
+/// are known at compile time, enabling additional optimizations.
 pub mod fixed_operations;
+
+/// Core I/O operations (read, write, etc.) for the Ring.
+///
+/// Contains the fundamental I/O operation methods that form the core of the
+/// safer-ring API, including read, write, and other basic operations.
 pub mod io_operations;
+
+/// Network-specific I/O operations (accept, send, recv, etc.).
+///
+/// Contains networking-focused operations like socket accept, send, receive,
+/// and other network-specific functionality built on top of io_uring.
 pub mod network_operations;
+
+/// Safe operation wrappers with additional lifetime and safety guarantees.
+///
+/// Contains higher-level safe wrappers around low-level operations,
+/// providing additional compile-time safety checks and lifetime management.
 pub mod safe_operations;
+
+/// Utility functions and helpers for Ring operations.
+///
+/// Contains helper functions, diagnostic utilities, and convenience methods
+/// that support the main Ring functionality.
 pub mod utility;
 
 /// Safe wrapper around io_uring with lifetime management.
@@ -215,7 +250,7 @@ pub struct Ring<'ring> {
     // Using RefCell instead of Mutex for single-threaded performance
     pub(super) operations: RefCell<OperationTracker<'ring>>,
     // Waker registry for async/await support
-    pub(super) waker_registry: Rc<WakerRegistry>,
+    pub(super) waker_registry: Arc<WakerRegistry>,
     // Orphan tracker for cancelled operations safety
     pub(super) orphan_tracker: Arc<Mutex<OrphanTracker>>,
 }
@@ -256,7 +291,7 @@ impl<'ring> Ring<'ring> {
             backend: RefCell::new(backend),
             phantom: PhantomData,
             operations: RefCell::new(OperationTracker::new()),
-            waker_registry: Rc::new(WakerRegistry::new()),
+            waker_registry: Arc::new(WakerRegistry::new()),
             orphan_tracker: Arc::new(Mutex::new(OrphanTracker::new())),
         })
     }

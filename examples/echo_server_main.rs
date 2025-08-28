@@ -12,13 +12,10 @@
 // Note: Using the echo_server module from the subdirectory
 #[path = "echo_server/mod.rs"]
 mod echo_server;
-use echo_server::{ServerConfig, ServerStats};
+use echo_server::ServerStats;
 use safer_ring::{PinnedBuffer, Ring};
-use std::net::TcpListener;
-use std::os::unix::io::AsRawFd;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
 
 #[cfg(target_os = "linux")]
 #[tokio::main]

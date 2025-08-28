@@ -31,3 +31,6 @@ target
 
 # Lock
 Cargo.lock
+
+# User Target
+.user_target

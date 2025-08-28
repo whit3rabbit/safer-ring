@@ -4,7 +4,7 @@ use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
 use std::pin::Pin as StdPin;
-use std::rc::Rc;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crate::future::waker::WakerRegistry;
@@ -36,7 +36,7 @@ pub struct OperationFuture<'ring, 'buf> {
     /// Reference to the ring for polling completions
     ring: &'ring mut Ring<'ring>,
     /// Waker registry for async notification
-    waker_registry: Rc<WakerRegistry>,
+    waker_registry: Arc<WakerRegistry>,
     /// Phantom data for lifetime tracking
     _phantom: PhantomData<(&'ring (), &'buf ())>,
 }
@@ -46,7 +46,7 @@ impl<'ring, 'buf> OperationFuture<'ring, 'buf> {
     pub(crate) fn new(
         operation: Operation<'ring, 'buf, Submitted>,
         ring: &'ring mut Ring<'ring>,
-        waker_registry: Rc<WakerRegistry>,
+        waker_registry: Arc<WakerRegistry>,
     ) -> Self {
         Self {
             operation: Some(operation),

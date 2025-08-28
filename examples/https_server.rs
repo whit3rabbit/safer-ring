@@ -44,8 +44,18 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+#[cfg(target_os = "linux")]
+use {
+    safer_ring::{PinnedBuffer, Ring},
+    std::net::TcpListener,
+    std::os::unix::io::AsRawFd,
+    std::sync::Arc,
+    std::time::Instant,
+};
+
 /// Configuration for the HTTPS server
 #[derive(Debug)]
+#[allow(dead_code)]
 struct HttpsConfig {
     /// Address to bind the server to
     bind_address: String,
@@ -75,6 +85,7 @@ impl Default for HttpsConfig {
 }
 
 impl HttpsConfig {
+    #[allow(dead_code)]
     fn from_args() -> Result<Self, Box<dyn std::error::Error>> {
         let args: Vec<String> = env::args().collect();
         let mut config = HttpsConfig::default();
@@ -127,6 +138,7 @@ impl HttpsConfig {
         Ok(config)
     }
 
+    #[allow(dead_code)]
     fn validate(&self) -> Result<(), Box<dyn std::error::Error>> {
         if !Path::new(&self.cert_path).exists() {
             return Err(format!("Certificate file not found: {}", self.cert_path).into());
@@ -139,6 +151,7 @@ impl HttpsConfig {
 }
 
 /// TLS context for managing certificates and configuration
+#[allow(dead_code)]
 struct TlsContext {
     cert_data: Vec<u8>,
     key_data: Vec<u8>,
@@ -146,6 +159,7 @@ struct TlsContext {
 }
 
 impl TlsContext {
+    #[allow(dead_code)]
     fn new(config: &HttpsConfig) -> Result<Self, Box<dyn std::error::Error>> {
         let cert_data = fs::read(&config.cert_path)?;
         let key_data = fs::read(&config.key_path)?;
@@ -163,6 +177,7 @@ impl TlsContext {
 
 /// Statistics for the HTTPS server
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 struct HttpsStats {
     connections_accepted: u64,
     tls_handshakes_completed: u64,
@@ -392,6 +407,7 @@ async fn handle_https_client(
 }
 
 /// Simplified TLS session representation
+#[allow(dead_code)]
 struct TlsSession {
     ktls_enabled: bool,
     // In a real implementation, this would contain actual TLS state
@@ -444,6 +460,7 @@ async fn perform_tls_handshake(
 }
 
 /// Check if kTLS support is available on the system
+#[allow(dead_code)]
 fn check_ktls_support() -> bool {
     // Check for kTLS support by looking for the kernel module or sysfs entries
     std::path::Path::new("/proc/net/tls_stat").exists()
@@ -451,6 +468,7 @@ fn check_ktls_support() -> bool {
 }
 
 /// Enable kTLS on a socket (simplified implementation)
+#[allow(dead_code)]
 fn enable_ktls_on_socket(fd: i32) -> Result<bool, Box<dyn std::error::Error>> {
     // In a real implementation, this would use setsockopt with TLS_TX and TLS_RX
     // For now, we'll just simulate success based on system support
@@ -464,6 +482,7 @@ fn enable_ktls_on_socket(fd: i32) -> Result<bool, Box<dyn std::error::Error>> {
 }
 
 /// Create a simplified ServerHello response
+#[allow(dead_code)]
 fn create_server_hello_response(tls_context: &TlsContext) -> String {
     // This is a simplified HTTP response for demo purposes
     // In a real TLS implementation, this would be proper TLS handshake messages
@@ -481,6 +500,7 @@ fn create_server_hello_response(tls_context: &TlsContext) -> String {
 }
 
 /// Decrypt TLS data (placeholder implementation)
+#[allow(dead_code)]
 fn decrypt_tls_data<'a>(
     _session: &TlsSession,
     encrypted_data: &'a [u8],
@@ -491,6 +511,7 @@ fn decrypt_tls_data<'a>(
 }
 
 /// Encrypt TLS data (placeholder implementation)
+#[allow(dead_code)]
 fn encrypt_tls_data<'a>(
     _session: &TlsSession,
     plaintext: &'a [u8],
@@ -501,6 +522,7 @@ fn encrypt_tls_data<'a>(
 }
 
 /// Generate HTTP response based on request
+#[allow(dead_code)]
 fn generate_http_response(request: &str) -> String {
     let path = extract_path_from_request(request);
 
@@ -550,6 +572,7 @@ fn generate_http_response(request: &str) -> String {
 }
 
 /// Extract path from HTTP request
+#[allow(dead_code)]
 fn extract_path_from_request(request: &str) -> String {
     request
         .lines()
@@ -559,6 +582,7 @@ fn extract_path_from_request(request: &str) -> String {
         .to_string()
 }
 
+#[allow(dead_code)]
 const HTML_RESPONSE: &str = r#"<!DOCTYPE html>
 <html>
 <head>

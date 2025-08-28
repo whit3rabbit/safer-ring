@@ -2,6 +2,7 @@
 
 /// Configuration parameters for the echo server.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ServerConfig {
     /// Address to bind the server to
     pub bind_address: &'static str,
@@ -33,6 +34,7 @@ impl Default for ServerConfig {
 
 impl ServerConfig {
     /// Extract host and port from bind address for display purposes.
+    #[allow(dead_code)]
     pub fn host_port(&self) -> (&str, &str) {
         let parts: Vec<&str> = self.bind_address.split(':').collect();
         (
