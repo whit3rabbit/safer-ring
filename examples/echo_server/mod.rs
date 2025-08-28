@@ -4,6 +4,6 @@ pub mod client;
 pub mod config;
 pub mod stats;
 
-pub use client::handle_client;
+// Do not re-export handle_client here to avoid conflicts.
 pub use config::ServerConfig;
 pub use stats::ServerStats;

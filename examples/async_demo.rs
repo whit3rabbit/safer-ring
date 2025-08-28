@@ -34,8 +34,9 @@ use safer_ring::{Batch, BufferPool, Operation, PinnedBuffer, Ring};
 use std::env;
 use std::fs::File;
 use std::io::Write;
-use std::time::Duration;
-use tokio::time::{sleep, timeout, Instant};
+use std::pin::Pin;
+use std::time::{Duration, Instant};
+use tokio::time::{sleep, timeout};
 
 /// Configuration for the async demonstration
 #[derive(Debug)]
@@ -46,8 +47,6 @@ struct AsyncDemoConfig {
     concurrent: bool,
     /// Whether to run batch operations demo
     batch_demo: bool,
-    /// Number of concurrent operations
-    concurrent_ops: usize,
     /// Buffer size for operations
     buffer_size: usize,
 }
@@ -58,7 +57,6 @@ impl Default for AsyncDemoConfig {
             with_files: false,
             concurrent: false,
             batch_demo: true,
-            concurrent_ops: 8,
             buffer_size: 4096,
         }
     }
@@ -332,7 +330,7 @@ async fn run_concurrent_demo(
     println!("   3️⃣  Spawning concurrent tasks...");
 
     let mut tasks = Vec::new();
-    for i in 0..config.concurrent_ops {
+    for i in 0..config.concurrent {
         let task = tokio::spawn(async move {
             let delay = (i * 10) as u64;
             sleep(Duration::from_millis(delay)).await;
@@ -372,12 +370,12 @@ async fn run_batch_demo(
 
     println!(
         "   🔧 Creating batch with {} operations...",
-        config.concurrent_ops
+        config.concurrent
     );
 
     if config.with_files {
         // Create operations with real files
-        for i in 0..config.concurrent_ops {
+        for i in 0..config.concurrent {
             let temp_file = create_temp_file(&format!("Batch file {} content", i))?;
             let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
 
@@ -391,7 +389,7 @@ async fn run_batch_demo(
         }
     } else {
         // Simulate batch operations
-        for i in 0..std::cmp::min(config.concurrent_ops, 4) {
+        for i in 0..std::cmp::min(config.concurrent, 4) {
             let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
 
             // Fill buffer with test data
@@ -421,7 +419,7 @@ async fn run_batch_demo(
         println!("      ⏱️  Total time: {:?}", batch_time);
         println!(
             "      📊 Average time per operation: {:?}",
-            batch_time / config.concurrent_ops as u32
+            batch_time / config.concurrent as u32
         );
     }
 

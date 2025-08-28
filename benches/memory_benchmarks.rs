@@ -2,6 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use pprof::criterion::{Output, PProfProfiler};
 use safer_ring::{BufferPool, PinnedBuffer, Ring};
 use std::alloc::{GlobalAlloc, Layout, System};
+use std::io::Write;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tempfile::NamedTempFile;

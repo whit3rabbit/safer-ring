@@ -3,7 +3,8 @@
 //! This example shows how to use the completion queue processing functionality
 //! to handle completed io_uring operations safely.
 
-use safer_ring::Ring;
+use safer_ring::{Operation, PinnedBuffer, Ring};
+use std::pin::Pin;
 
 #[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {

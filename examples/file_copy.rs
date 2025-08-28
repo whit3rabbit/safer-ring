@@ -35,8 +35,13 @@
 //! - Automatic cleanup of resources on error or completion
 //! - No risk of data corruption due to memory safety guarantees
 
+use safer_ring::{Ring, PinnedBuffer};
 use std::env;
+use std::fs::{File, OpenOptions};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::{self, Write};
+use std::os::unix::io::AsRawFd;
+use std::time::{Duration, Instant};
 
 /// Configuration for the file copy operation
 #[derive(Debug)]

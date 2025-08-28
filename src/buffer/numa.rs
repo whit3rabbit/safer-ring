@@ -267,6 +267,12 @@ pub fn numa_node_count() -> usize {
     1
 }
 
+/// Check if NUMA is available on the system (non-Linux stub).
+#[cfg(not(target_os = "linux"))]
+pub fn is_numa_available() -> bool {
+    false
+}
+
 /// Gets the NUMA node for the current CPU (non-Linux stub).
 #[cfg(not(target_os = "linux"))]
 pub fn current_numa_node() -> Option<usize> {

@@ -9,6 +9,8 @@ pub struct ServerConfig {
     pub ring_size: u32,
     /// Buffer size for each connection
     pub buffer_size: usize,
+    /// Maximum concurrent connections (for logging/display only in this example)
+    pub max_connections: usize,
     /// Connection timeout in seconds
     pub connection_timeout_secs: u64,
 }
@@ -21,6 +23,8 @@ impl Default for ServerConfig {
             ring_size: 64,
             // 4KB buffer is reasonable for most echo scenarios
             buffer_size: 4096,
+            // Add the missing field
+            max_connections: 128,
             // 30 second timeout prevents hanging connections
             connection_timeout_secs: 30,
         }

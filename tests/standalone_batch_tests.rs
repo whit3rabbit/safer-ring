@@ -1,7 +1,6 @@
 //! Tests for standalone batch operations that solve the lifetime constraint issues.
 
-use safer_ring::{Batch, BatchConfig, Operation, PinnedBuffer, Ring, StandaloneBatchFuture};
-use std::future::poll_fn;
+// File exists but contains no active tests that use these imports
 
 /// Test that standalone batch operations can be created without lifetime issues.
 #[tokio::test]

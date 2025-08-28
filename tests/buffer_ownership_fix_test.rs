@@ -7,60 +7,73 @@
 #[test]
 fn test_polling_api_buffer_ownership() {
     use safer_ring::{Operation, PinnedBuffer, Ring};
-    use std::pin::Pin;
+    use std::io::Write;
+    use std::os::unix::io::FromRawFd;
 
-    // Create a ring for testing
+    // 1. Create a pipe for a controllable I/O source.
+    let mut pipe_fds = [-1; 2];
+    assert_eq!(unsafe { libc::pipe(pipe_fds.as_mut_ptr()) }, 0);
+    let (read_fd, write_fd) = (pipe_fds[0], pipe_fds[1]);
+
+    // Ensure fds are closed on drop by wrapping them in File
+    let _read_pipe = unsafe { std::fs::File::from_raw_fd(read_fd) };
+    let mut write_pipe = unsafe { std::fs::File::from_raw_fd(write_fd) };
+
     let mut ring = Ring::new(32).expect("Failed to create ring");
-
-    // Create a buffer for I/O operations
     let mut buffer = PinnedBuffer::with_capacity(1024);
+    let operation_id;
 
-    // Create a read operation using a borrowed buffer
-    let operation = Operation::read()
-        .fd(0) // stdin
-        .buffer(buffer.as_mut_slice());
+    // Scope the submission to control borrow lifetimes
+    {
+        let operation = Operation::read()
+            .fd(read_fd)
+            .buffer(buffer.as_mut_slice());
 
-    // Submit the operation
-    let submitted = match ring.submit(operation) {
-        Ok(submitted) => submitted,
-        Err(_) => {
-            // If submission fails (e.g., due to environment), skip the rest
-            return;
-        }
-    };
+        let submitted = ring.submit(operation).expect("Failed to submit operation");
+        operation_id = submitted.id();
+    } // `operation` and `submitted` are dropped, but the borrow is held by `ring`'s tracker.
 
-    let operation_id = submitted.id();
-    assert!(operation_id > 0, "Operation ID should be positive");
+    // 2. Write to the pipe to make the read operation completable.
+    write_pipe
+        .write_all(b"hello")
+        .expect("Failed to write to pipe");
+    write_pipe.flush().expect("Failed to flush pipe");
 
-    // Check for completions using the polling API
-    let completions = ring.try_complete().expect("Failed to check completions");
+    // 3. Poll for completion.
+    let mut completion_found = false;
+    for _ in 0..10 {
+        // Poll a few times to give the kernel time to process
+        let completions = ring.try_complete().expect("Failed to check completions");
+        for completion in completions {
+            if completion.id() == operation_id {
+                let (result, buffer_ownership) = completion.into_result();
 
-    // Process any completions that happened quickly
-    for completion in completions {
-        let (result, buffer_ownership) = completion.into_result();
+                // 4. Assert on the CompletionResult.
+                // The current API uses borrows, so ownership isn't returned here.
+                assert!(
+                    buffer_ownership.is_none(),
+                    "Buffer ownership should be None with the current borrowed reference API"
+                );
 
-        // The current implementation always returns None for buffer ownership
-        // because it uses borrowed references rather than owned buffers
-        assert!(
-            buffer_ownership.is_none(),
-            "Buffer ownership should be None with current borrowed reference API"
-        );
-
-        // The result should be valid (either success or failure)
-        match result {
-            Ok(bytes) => {
-                println!("Operation completed successfully with {} bytes", bytes);
-            }
-            Err(e) => {
-                println!("Operation failed as expected: {}", e);
-                // This is expected for stdin reads in test environments
+                let bytes_read = result.expect("Read operation should succeed");
+                assert_eq!(bytes_read, 5);
+                completion_found = true;
+                break;
             }
         }
+        if completion_found {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    // Verify that the user still has their buffer
+    assert!(completion_found, "The read operation did not complete");
+
+    // 5. Now that the operation is complete and removed from the ring's tracker,
+    // the mutable borrow has ended, and we can access the buffer again.
     assert_eq!(buffer.len(), 1024);
-    println!("Original buffer is still accessible to the user");
+    assert_eq!(&buffer.as_slice()[..5], b"hello");
+    println!("Original buffer is still accessible to the user after completion");
 }
 
 #[cfg(not(target_os = "linux"))]

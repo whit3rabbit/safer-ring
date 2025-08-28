@@ -4,7 +4,7 @@
 //!
 //! ## Usage
 //! ```bash
-//! cargo run --example echo_server
+//! cargo run --example echo_server_main
 //! ```
 //!
 //! Connect with: `telnet localhost 8080` or `nc localhost 8080`
@@ -12,15 +12,17 @@
 // Note: Using the echo_server module from the subdirectory
 #[path = "echo_server/mod.rs"]
 mod echo_server;
-use echo_server::{handle_client, ServerConfig, ServerStats};
+use echo_server::{ServerConfig, ServerStats};
 use safer_ring::{PinnedBuffer, Ring};
 use std::net::TcpListener;
 use std::os::unix::io::AsRawFd;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
 #[cfg(target_os = "linux")]
 #[tokio::main]
+#[allow(unreachable_code)] // The main server loop is intended to be infinite.
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting safer-ring TCP Echo Server");
     println!("=====================================");
@@ -34,8 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📡 Listening on {}", config.bind_address);
 
     // Create the io_uring instance with optimized settings
-    let ring = Ring::new(config.ring_size)?;
-    println!("⚡ Created io_uring with {} entries", config.ring_size);
+    let mut ring = Ring::new(config.ring_size)?;
+    println!("⚡ Created io_uring with {} entries", ring.capacity());
     println!("💾 Buffer size: {} bytes", config.buffer_size);
     println!("🔗 Max connections: {}", config.max_connections);
     println!();
@@ -65,12 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
 
-    // Accept and handle connections
+    // Accept and handle connections sequentially
     loop {
-        // Handle new connections
         match ring.accept(listener_fd)?.await {
             Ok(client_fd) => {
-                // Update statistics
                 {
                     let mut stats = stats.lock().await;
                     stats.connections_accepted += 1;
@@ -79,41 +79,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("🔌 New connection: fd {}", client_fd);
 
-                // Handle the client in a separate task
-                let ring_ref = &ring;
+                // Handle the client sequentially to avoid Sync issues with Ring.
+                // For a concurrent server, use a worker-per-core model with one Ring each.
                 let stats_clone = Arc::clone(&stats);
                 let buffer_size = config.buffer_size;
+                let start_time = Instant::now();
 
-                tokio::spawn(async move {
-                    let start_time = Instant::now();
-                    let result =
-                        handle_client(ring_ref, client_fd, buffer_size, &stats_clone).await;
+                let result = handle_client(&mut ring, client_fd, buffer_size, &stats_clone).await;
 
-                    // Update statistics
-                    {
-                        let mut stats = stats_clone.lock().await;
-                        stats.active_connections -= 1;
+                {
+                    let mut stats = stats_clone.lock().await;
+                    stats.active_connections -= 1;
+                }
+
+                match result {
+                    Ok(bytes_processed) => {
+                        println!(
+                            "✅ Connection {} closed cleanly ({} bytes, {:?})",
+                            client_fd,
+                            bytes_processed,
+                            start_time.elapsed()
+                        );
                     }
-
-                    match result {
-                        Ok(bytes_processed) => {
-                            println!(
-                                "✅ Connection {} closed cleanly ({} bytes, {:?})",
-                                client_fd,
-                                bytes_processed,
-                                start_time.elapsed()
-                            );
-                        }
-                        Err(e) => {
-                            eprintln!("❌ Error handling client {}: {}", client_fd, e);
-                        }
+                    Err(e) => {
+                        eprintln!("❌ Error handling client {}: {}", client_fd, e);
                     }
+                }
 
-                    // Close the client socket
-                    unsafe {
-                        libc::close(client_fd);
-                    }
-                });
+                // Close the client socket
+                unsafe {
+                    libc::close(client_fd);
+                }
             }
             Err(e) => {
                 eprintln!("❌ Failed to accept connection: {}", e);
@@ -138,7 +134,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Handle a single client connection with comprehensive error handling and statistics
 #[cfg(target_os = "linux")]
 async fn handle_client(
-    ring: &Ring<'_>,
+    ring: &mut Ring<'_>,
     client_fd: i32,
     buffer_size: usize,
     stats: &Arc<tokio::sync::Mutex<ServerStats>>,
@@ -154,7 +150,7 @@ async fn handle_client(
         )
         .await;
 
-        let (bytes_received, buffer_back) = match receive_result {
+        let (bytes_received, mut buffer_back) = match receive_result {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
                 // I/O error
@@ -197,7 +193,7 @@ async fn handle_client(
         // Echo the data back to the client
         // We only send back the actual data received, not the full buffer
         let echo_slice = &mut buffer_back.as_mut()[..bytes_received];
-        let (bytes_sent, buffer_returned) = ring.send(client_fd, echo_slice)?.await?;
+        let (bytes_sent, _buffer_returned) = ring.send(client_fd, Pin::new(echo_slice))?.await?;
 
         // Update send statistics
         {
@@ -216,9 +212,9 @@ async fn handle_client(
                 client_fd, bytes_sent, bytes_received
             );
         }
-
-        // Reuse the returned buffer for the next iteration
-        buffer = buffer_returned;
+        // No need to reassign `buffer`. The `PinnedBuffer` owns the memory,
+        // and the `recv` operation modified its contents in place.
+        // It's ready to be used in the next loop iteration.
     }
 
     Ok(total_bytes_processed)

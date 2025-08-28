@@ -27,7 +27,7 @@ async fn stress_test_buffer_pool_high_frequency() {
 
             for i in 0..operations_per_task {
                 // Get buffer from pool
-                let buffer = loop {
+                let mut buffer = loop {
                     if let Some(buf) = pool_clone.get() {
                         break buf;
                     }
@@ -36,7 +36,7 @@ async fn stress_test_buffer_pool_high_frequency() {
                 };
 
                 // Simulate work with the buffer
-                let slice = buffer.as_mut_slice();
+                let mut slice = buffer.as_mut_slice();
                 for (idx, byte) in slice.iter_mut().enumerate() {
                     *byte = ((task_id + i + idx) % 256) as u8;
                 }
@@ -82,13 +82,14 @@ async fn stress_test_buffer_pool_high_frequency() {
 }
 
 /// Stress test for ring operation submission and completion
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn stress_test_ring_operations() {
     const RING_SIZE: usize = 256;
     const OPERATIONS: usize = 5000;
     const BUFFER_SIZE: usize = 1024;
 
-    let ring = Ring::new(RING_SIZE).unwrap();
+    let ring = Ring::new(RING_SIZE as u32).unwrap();
     let pool = Arc::new(BufferPool::new(RING_SIZE * 2, BUFFER_SIZE));
 
     let start_time = Instant::now();
@@ -121,7 +122,7 @@ async fn stress_test_ring_operations() {
                 };
 
                 // Fill buffer with test data
-                let slice = buffer.as_mut_slice();
+                let mut slice = buffer.as_mut_slice();
                 for (idx, byte) in slice.iter_mut().enumerate() {
                     *byte = ((task_id + i + idx) % 256) as u8;
                 }
@@ -169,6 +170,21 @@ async fn stress_test_ring_operations() {
     assert_eq!(ring.operations_in_flight(), 0);
 }
 
+/// Non-Linux version of ring operations test
+#[cfg(not(target_os = "linux"))]
+#[tokio::test]
+async fn stress_test_ring_operations() {
+    use safer_ring::Ring;
+    
+    // On non-Linux platforms, Ring::new should return an error
+    match Ring::new(64) {
+        Ok(_) => panic!("Ring creation should fail on non-Linux platforms"),
+        Err(e) => {
+            println!("Expected error on non-Linux platform: {}", e);
+        }
+    }
+}
+
 /// Memory pressure test - ensure no leaks under high allocation pressure
 #[tokio::test]
 async fn stress_test_memory_pressure() {
@@ -187,7 +203,7 @@ async fn stress_test_memory_pressure() {
 
         // Use the buffers
         for (i, buffer) in buffers.iter_mut().enumerate() {
-            let slice = buffer.as_mut_slice();
+            let mut slice = buffer.as_mut_slice();
             for (idx, byte) in slice.iter_mut().enumerate() {
                 *byte = ((iteration + i + idx) % 256) as u8;
             }
@@ -239,7 +255,7 @@ async fn stress_test_error_recovery() {
 
             for i in 0..200 {
                 // Get buffer from pool
-                let buffer = loop {
+                let mut buffer = loop {
                     if let Some(buf) = pool_clone.get() {
                         break buf;
                     }
@@ -253,7 +269,7 @@ async fn stress_test_error_recovery() {
                     drop(buffer); // Explicit drop to simulate error cleanup
                 } else {
                     // Successful operation
-                    let slice = buffer.as_mut_slice();
+                    let mut slice = buffer.as_mut_slice();
                     slice[0] = (i % 256) as u8;
                     successful_ops += 1;
                     // Buffer automatically returned on drop

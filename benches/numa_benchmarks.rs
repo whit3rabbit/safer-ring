@@ -181,7 +181,7 @@ fn bench_numa_buffer_pool(c: &mut Criterion) {
     }
 
     group.bench_function("single_pool", |b| {
-        let pool = BufferPool::new(100, 4096).unwrap();
+        let pool = BufferPool::new(100, 4096);
 
         b.iter(|| {
             let buffer = pool.acquire();
@@ -213,7 +213,9 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                         for i in 0..10 {
                             let buffer = numa_support::allocate_numa_buffer(4096, node);
                             let pinned_buffer = PinnedBuffer::new(buffer);
-                            futures.push(ring.read_at(fd, pinned_buffer, (i * 4096) as u64));
+                            if let Ok(future) = ring.read_at(fd, pinned_buffer, (i * 4096) as u64) {
+                                futures.push(future);
+                            }
                         }
 
                         let results = futures::future::join_all(futures).await;
@@ -237,7 +239,9 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                         let buffer = numa_support::allocate_numa_buffer(4096, 0);
                         numa_support::bind_to_numa_node(1).unwrap();
                         let pinned_buffer = PinnedBuffer::new(buffer);
-                        futures.push(ring.read_at(fd, pinned_buffer, (i * 4096) as u64));
+                        if let Ok(future) = ring.read_at(fd, pinned_buffer, (i * 4096) as u64) {
+                            futures.push(future);
+                        }
                     }
 
                     let results = futures::future::join_all(futures).await;
@@ -256,9 +260,11 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                 let fd = file.as_raw_fd();
 
                 let mut futures = Vec::new();
-                for i in 0..10 {
-                    let buffer = PinnedBuffer::new(vec![0u8; 4096]);
-                    futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                let mut buffers: Vec<PinnedBuffer<[u8]>> = (0..10).map(|_| PinnedBuffer::with_capacity(4096)).collect();
+                for (i, buffer) in buffers.iter_mut().enumerate() {
+                    if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
+                        futures.push(future);
+                    }
                 }
 
                 let results = futures::future::join_all(futures).await;
@@ -290,8 +296,10 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                         let fd = file.as_raw_fd();
 
                         for i in 0..10 {
-                            if let Some(buffer) = numa_pool.acquire_local() {
-                                futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                            if let Some(mut buffer) = numa_pool.acquire_local() {
+                                if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
+                                    futures.push(future);
+                                }
                             }
                         }
                     }
@@ -304,7 +312,7 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
     }
 
     group.bench_function("numa_unaware_concurrent", |b| {
-        let pool = BufferPool::new(200, 4096).unwrap();
+        let pool = BufferPool::new(200, 4096);
         let files: Vec<_> = (0..4).map(|_| setup_test_file()).collect();
 
         b.iter(|| {
@@ -316,8 +324,10 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                     let fd = file.as_raw_fd();
 
                     for i in 0..10 {
-                        if let Some(buffer) = pool.acquire() {
-                            futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                        if let Some(mut buffer) = pool.acquire() {
+                            if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
+                                futures.push(future);
+                            }
                         }
                     }
                 }

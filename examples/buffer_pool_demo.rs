@@ -35,7 +35,7 @@
 //! - Game servers with strict latency requirements
 //! - Financial trading systems
 
-use safer_ring::PinnedBuffer;
+use safer_ring::pool::BufferPool;
 use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -127,7 +127,6 @@ impl DemoConfig {
 #[derive(Debug, Default)]
 struct PoolDemoStats {
     allocations: u64,
-    deallocations: u64,
     allocation_failures: u64,
     total_bytes_processed: u64,
     operations_completed: u64,
@@ -162,101 +161,111 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run_basic_demo(config: &DemoConfig) -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Starting basic buffer pool demo...");
 
-    // Simulate buffer pool creation (actual BufferPool API not fully implemented)
-    println!("✅ Simulating buffer pool creation");
+    // Create a real BufferPool
+    let pool = BufferPool::new(config.pool_size, config.buffer_size);
+    println!("✅ Buffer pool created");
     println!("📈 Pool configuration:");
-    println!("   Pool size: {} buffers", config.pool_size);
-    println!("   Buffer size: {} bytes", config.buffer_size);
+    println!("   Pool size: {} buffers", pool.capacity());
+    println!("   Buffer size: {} bytes", pool.buffer_size());
     println!();
 
     // Demonstrate basic buffer operations
     println!("🔄 Demonstrating basic operations...");
 
-    // Create some buffers to simulate pool behavior
+    // Get some buffers from the pool
     let mut buffers = Vec::new();
     for i in 0..std::cmp::min(5, config.pool_size) {
-        let buffer = PinnedBuffer::with_capacity(config.buffer_size);
-        println!(
-            "   📦 Created buffer {} (size: {} bytes)",
-            i + 1,
-            buffer.len()
-        );
-        buffers.push(buffer);
+        if let Some(buffer) = pool.get() {
+            println!(
+                "   📦 Acquired buffer {} (size: {} bytes)",
+                i + 1,
+                buffer.len()
+            );
+            buffers.push(buffer);
+        }
     }
 
-    println!("📊 Simulated pool stats:");
-    println!("   Buffers created: {}", buffers.len());
-    println!(
-        "   Total capacity: {} bytes",
-        buffers.len() * config.buffer_size
-    );
+    println!("📊 Pool stats after acquiring:");
+    let stats = pool.stats();
+    println!("   Available buffers: {}", stats.available_buffers);
+    println!("   In-use buffers: {}", stats.in_use_buffers);
     println!();
 
     // Use the buffers (simulate some work)
     println!("⚡ Simulating buffer usage...");
-    for (i, mut buffer) in buffers.iter_mut().enumerate() {
+    for (i, buffer) in buffers.iter_mut().enumerate() {
         // Fill buffer with test data
         let test_data = format!("Test data for buffer {}", i + 1);
         let bytes = test_data.as_bytes();
         let copy_len = std::cmp::min(bytes.len(), buffer.len());
-        buffer.as_mut_slice()[..copy_len].copy_from_slice(&bytes[..copy_len]);
+        let mut slice = buffer.as_mut_slice();
+        slice[..copy_len].copy_from_slice(&bytes[..copy_len]);
 
         println!("   ✏️  Filled buffer {} with: {}", i + 1, test_data);
     }
 
-    // Drop buffers (simulate returning to pool)
-    println!("🔄 Simulating buffer return to pool...");
+    // Drop buffers (they are automatically returned to pool)
+    println!("🔄 Returning buffers to pool (on drop)...");
     drop(buffers);
     println!("📊 All buffers returned to pool");
+    let stats = pool.stats();
+    println!("   Available buffers: {}", stats.available_buffers);
+    println!("   In-use buffers: {}", stats.in_use_buffers);
     println!();
 
     // Demonstrate concurrent access simulation
     println!("🔀 Demonstrating concurrent buffer usage...");
-    run_concurrent_demo_simulation(config).await?;
+    run_concurrent_demo_with_pool(config, pool).await?;
 
     println!("✅ Basic demo completed!");
     Ok(())
 }
 
-/// Simulate concurrent buffer access
-async fn run_concurrent_demo_simulation(
+/// Simulate concurrent buffer access using a real pool
+async fn run_concurrent_demo_with_pool(
     config: &DemoConfig,
+    pool: BufferPool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let stats = Arc::new(tokio::sync::Mutex::new(PoolDemoStats::default()));
     let mut tasks = Vec::new();
+    let pool = Arc::new(pool);
 
-    // Start concurrent tasks that simulate buffer pool usage
+    // Start concurrent tasks that use the buffer pool
     for task_id in 0..config.concurrent_ops {
         let stats_clone = Arc::clone(&stats);
-        let buffer_size = config.buffer_size;
+        let pool_clone = Arc::clone(&pool);
 
         let task = tokio::spawn(async move {
             let mut local_ops = 0u64;
             let start_time = Instant::now();
 
             while start_time.elapsed().as_secs() < 5 {
-                // Simulate getting a buffer from pool
-                let mut buffer = PinnedBuffer::with_capacity(buffer_size);
+                // Get a buffer from the pool
+                if let Some(mut buffer) = pool_clone.get() {
+                    // Simulate some work with the buffer
+                    let work_data = format!("Task {} operation {}", task_id, local_ops);
+                    let bytes = work_data.as_bytes();
+                    let copy_len = std::cmp::min(bytes.len(), buffer.len());
+                    let mut slice = buffer.as_mut_slice();
+                    slice[..copy_len].copy_from_slice(&bytes[..copy_len]);
 
-                // Simulate some work with the buffer
-                let work_data = format!("Task {} operation {}", task_id, local_ops);
-                let bytes = work_data.as_bytes();
-                let copy_len = std::cmp::min(bytes.len(), buffer.len());
-                buffer.as_mut_slice()[..copy_len].copy_from_slice(&bytes[..copy_len]);
+                    // Simulate processing time
+                    sleep(Duration::from_millis(10)).await;
 
-                // Simulate processing time
-                sleep(Duration::from_millis(10)).await;
-
-                // Update statistics
-                {
+                    // Update statistics
+                    {
+                        let mut stats = stats_clone.lock().await;
+                        stats.allocations += 1;
+                        stats.total_bytes_processed += copy_len as u64;
+                        stats.operations_completed += 1;
+                    }
+                    local_ops += 1;
+                } else {
                     let mut stats = stats_clone.lock().await;
-                    stats.allocations += 1;
-                    stats.total_bytes_processed += copy_len as u64;
-                    stats.operations_completed += 1;
+                    stats.allocation_failures += 1;
+                    sleep(Duration::from_millis(1)).await; // Wait for buffer to become available
                 }
-
-                local_ops += 1;
-                // Buffer is automatically cleaned up when dropped
+                // Buffer is automatically returned to pool on drop
             }
 
             println!("   🏁 Task {} completed {} operations", task_id, local_ops);
@@ -297,8 +306,7 @@ async fn run_concurrent_demo_simulation(
 async fn run_stress_test(config: &DemoConfig) -> Result<(), Box<dyn std::error::Error>> {
     println!("💪 Starting stress test...");
 
-    // Simulate buffer pool for stress test
-    println!("💪 Simulating buffer pool stress test...");
+    let pool = Arc::new(BufferPool::new(config.pool_size, config.buffer_size));
     let stats = Arc::new(tokio::sync::Mutex::new(PoolDemoStats::default()));
 
     // Statistics reporting task
@@ -333,54 +341,48 @@ async fn run_stress_test(config: &DemoConfig) -> Result<(), Box<dyn std::error::
         }
     });
 
-    // Start worker tasks that simulate intensive buffer usage
+    // Start worker tasks that use the buffer pool intensively
     let mut tasks = Vec::new();
     for thread_id in 0..config.threads {
         let stats_clone = Arc::clone(&stats);
+        let pool_clone = Arc::clone(&pool);
         let duration = config.duration_secs;
-        let buffer_size = config.buffer_size;
 
         let task = tokio::spawn(async move {
             let start_time = Instant::now();
             let mut local_ops = 0u64;
 
             while start_time.elapsed().as_secs() < duration {
-                // High-frequency buffer operations simulation
+                // High-frequency buffer operations
                 for _ in 0..100 {
-                    // Simulate getting buffer from pool
-                    let mut buffer = PinnedBuffer::with_capacity(buffer_size);
-
-                    // Simulate intensive buffer usage
-                    let pattern = (thread_id as u8).wrapping_mul(local_ops as u8);
-                    for byte in buffer.as_mut_slice().iter_mut().take(64) {
-                        *byte = pattern;
-                    }
-
-                    local_ops += 1;
-
-                    // Update stats periodically to avoid lock contention
-                    if local_ops % 1000 == 0 {
-                        let mut stats = stats_clone.lock().await;
-                        stats.operations_completed += 1000;
-                        stats.total_bytes_processed += 64 * 1000;
-                        stats.allocations += 1000;
+                    if let Some(mut buffer) = pool_clone.get() {
+                        // Simulate intensive buffer usage
+                        let pattern = (thread_id as u8).wrapping_mul(local_ops as u8);
+                        let mut slice = buffer.as_mut_slice();
+                        for byte in slice.iter_mut().take(64) {
+                            *byte = pattern;
+                        }
+                        local_ops += 1;
+                    } else {
+                        // Record failure and yield
+                        let mut stats_lock = stats_clone.lock().await;
+                        stats_lock.allocation_failures += 1;
+                        drop(stats_lock);
+                        tokio::task::yield_now().await;
                     }
                 }
+
+                // Update stats periodically to reduce lock contention
+                let mut stats_lock = stats_clone.lock().await;
+                stats_lock.operations_completed += local_ops;
+                stats_lock.total_bytes_processed += 64 * local_ops;
+                stats_lock.allocations += local_ops;
+                local_ops = 0; // Reset local counter
 
                 // Small yield to prevent monopolizing CPU
                 tokio::task::yield_now().await;
             }
-
-            // Update final stats
-            let remaining = local_ops % 1000;
-            if remaining > 0 {
-                let mut stats = stats_clone.lock().await;
-                stats.operations_completed += remaining;
-                stats.total_bytes_processed += 64 * remaining;
-                stats.allocations += remaining;
-            }
-
-            println!("🏁 Thread {} completed {} operations", thread_id, local_ops);
+            println!("🏁 Thread {} completed", thread_id);
         });
 
         tasks.push(task);
@@ -410,7 +412,7 @@ async fn run_stress_test(config: &DemoConfig) -> Result<(), Box<dyn std::error::
         "Average ops/sec: {:.0}",
         final_stats.operations_completed as f64 / config.duration_secs as f64
     );
-    println!("Simulated allocations: {}", final_stats.allocations);
+    println!("Successful allocations: {}", final_stats.allocations);
     println!(
         "Success rate: {:.2}%",
         if final_stats.allocations + final_stats.allocation_failures > 0 {

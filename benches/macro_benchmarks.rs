@@ -2,6 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use pprof::criterion::{Output, PProfProfiler};
 use safer_ring::{BufferPool, PinnedBuffer, Ring};
 use std::fs::File;
+use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use std::time::Duration;
 use tempfile::NamedTempFile;
@@ -177,14 +178,16 @@ fn bench_concurrent_operations(c: &mut Criterion) {
                 b.iter(|| {
                     rt.block_on(async {
                         let ring = Ring::new(256).unwrap();
-                        let pool = BufferPool::new(concurrency * 2, 64 * 1024).unwrap();
+                        let pool = BufferPool::new(concurrency * 2, 64 * 1024);
 
                         let mut futures = Vec::new();
 
                         for file in &files {
                             let fd = file.as_raw_fd();
                             let buffer = pool.acquire().unwrap();
-                            futures.push(ring.read_at(fd, buffer, 0));
+                            if let Ok(future) = ring.read_at(fd, buffer, 0) {
+                                futures.push(future);
+                            }
                         }
 
                         let results = futures::future::join_all(futures).await;
@@ -259,14 +262,16 @@ fn bench_batch_operations(c: &mut Criterion) {
                 b.iter(|| {
                     rt.block_on(async {
                         let ring = Ring::new(256).unwrap();
-                        let pool = BufferPool::new(*batch_size * 2, 4096).unwrap();
+                        let pool = BufferPool::new(*batch_size * 2, 4096);
 
                         let fd = file.as_raw_fd();
                         let mut futures = Vec::new();
 
                         for i in 0..*batch_size {
                             let buffer = pool.acquire().unwrap();
-                            futures.push(ring.read_at(fd, buffer, (i * 4096) as u64));
+                            if let Ok(future) = ring.read_at(fd, buffer, (i * 4096) as u64) {
+                                futures.push(future);
+                            }
                         }
 
                         let results = futures::future::join_all(futures).await;
