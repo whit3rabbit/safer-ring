@@ -121,8 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Handle a single client connection with comprehensive error handling and statistics
 #[cfg(target_os = "linux")]
-async fn handle_client<'a>(
-    ring: &'a mut Ring<'a>,
+async fn handle_client(
+    ring: &mut Ring<'_>,
     client_fd: i32,
     buffer_size: usize,
     stats: &Arc<tokio::sync::Mutex<ServerStats>>,
@@ -165,17 +165,16 @@ async fn handle_client<'a>(
 
         // Log received data (truncated for readability)
         let data_preview = if let Some(guard) = buffer_back.try_access() {
-            let slice = guard.as_slice();
             if bytes_received > 50 {
                 format!(
                     "{}... ({} bytes)",
-                    String::from_utf8_lossy(&slice[..50]),
+                    String::from_utf8_lossy(&guard[..50]),
                     bytes_received
                 )
             } else {
                 format!(
                     "{} ({} bytes)",
-                    String::from_utf8_lossy(&slice[..bytes_received]),
+                    String::from_utf8_lossy(&guard[..bytes_received]),
                     bytes_received
                 )
             }
@@ -187,7 +186,7 @@ async fn handle_client<'a>(
         // Echo the data back to the client
         // Create echo buffer with just the data we received
         let echo_data = if let Some(guard) = buffer_back.try_access() {
-            guard.as_slice()[..bytes_received].to_vec()
+            guard[..bytes_received].to_vec()
         } else {
             return Err("Buffer not accessible for echo".into());
         };

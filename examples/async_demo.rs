@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("🔄 Running basic async patterns...");
         run_basic_async_demo(&ring, &config).await?;
 
-        if config.concurrent {
+        if config.concurrent > 0 {
             println!("\n🔀 Running concurrent operations demo...");
             run_concurrent_demo(&ring, &config).await?;
         }
@@ -163,9 +163,9 @@ async fn run_basic_async_demo(
         let buffer = OwnedBuffer::new(config.buffer_size);
         let (bytes_read, read_buffer) = ring.read_owned(temp_fd, buffer).await?;
         let data_str = if let Some(guard) = read_buffer.try_access() {
-            String::from_utf8_lossy(&guard[..bytes_read])
+            String::from_utf8_lossy(&guard[..bytes_read]).to_string()
         } else {
-            "Buffer not accessible".into()
+            "Buffer not accessible".to_string()
         };
         println!("      📖 Read {} bytes: {}", bytes_read, data_str);
 
@@ -433,7 +433,7 @@ async fn run_buffer_pool_async_demo(
     println!("🏊 Buffer Pool Async Integration:");
 
     // Create a buffer pool
-    let pool = BufferPool::new(8, config.buffer_size)?;
+    let pool = BufferPool::new(8, config.buffer_size);
     println!("   📦 Created buffer pool with 8 buffers");
 
     // Demonstrate async operations with pooled buffers

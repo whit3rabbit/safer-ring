@@ -40,9 +40,8 @@ async fn test_accept_operation() -> Result<(), Box<dyn std::error::Error + Send 
         TcpStream::connect(format!("127.0.0.1:{}", port))
     });
 
-    // Create the future before the timeout to avoid lifetime issues
-    let accept_future = ring.accept(listener_fd)?;
-    let client_fd = timeout(Duration::from_secs(5), accept_future).await??;
+    // Use the recommended safe API for accept operations
+    let client_fd = timeout(Duration::from_secs(5), ring.accept_safe(listener_fd)).await??;
 
     assert!(client_fd >= 0);
     connect_handle.await??;
@@ -59,10 +58,11 @@ async fn test_send_recv_operations() -> Result<(), Box<dyn std::error::Error + S
     let mut ring = Ring::new(32)?;
     let test_data = b"Hello, safer-ring!";
 
-    // Send data
+    // Send data using the immediate await pattern
     let mut send_buffer = PinnedBuffer::from_slice(test_data);
-    let send_future = ring.send(client_fd, send_buffer.as_mut_slice())?;
-    let (bytes_sent, _) = timeout(Duration::from_secs(5), send_future).await??;
+    let (bytes_sent, _) = timeout(Duration::from_secs(5), async {
+        ring.send(client_fd, send_buffer.as_mut_slice())?.await
+    }).await??;
     assert_eq!(bytes_sent, test_data.len());
 
     // Receive data on the other end
@@ -70,9 +70,8 @@ async fn test_send_recv_operations() -> Result<(), Box<dyn std::error::Error + S
     server.read_exact(&mut received_data)?;
     assert_eq!(received_data.as_slice(), test_data);
 
-    // Now test recv
+    // Now test recv using the immediate await pattern
     let mut recv_buffer = PinnedBuffer::with_capacity(1024);
-    let recv_future = ring.recv(client_fd, recv_buffer.as_mut_slice())?;
     
     // Write from server to trigger recv completion
     tokio::spawn(async move {
@@ -80,7 +79,9 @@ async fn test_send_recv_operations() -> Result<(), Box<dyn std::error::Error + S
         server.flush().unwrap();
     });
 
-    let (bytes_received, received_pinned_buffer) = timeout(Duration::from_secs(5), recv_future).await??;
+    let (bytes_received, received_pinned_buffer) = timeout(Duration::from_secs(5), async {
+        ring.recv(client_fd, recv_buffer.as_mut_slice())?.await
+    }).await??;
     assert_eq!(bytes_received, test_data.len());
     assert_eq!(&received_pinned_buffer.as_ref()[..bytes_received], test_data);
 
@@ -99,7 +100,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     let echo_task = tokio::spawn(async move {
         let mut ring = Ring::new(32)?;
         
-        let client_fd = ring.accept(listener_fd)?.await?;
+        let client_fd = ring.accept_safe(listener_fd).await?;
 
         let mut buffer = PinnedBuffer::with_capacity(1024);
         let (bytes_received, mut buffer) = ring.recv(client_fd, buffer.as_mut_slice())?.await?;
@@ -151,7 +152,7 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
         let mut ring = Ring::new(32)?;
         let mut results = Vec::new();
         for _ in 0..NUM_CONNECTIONS {
-            let client_fd = ring.accept(listener_fd)?.await?;
+            let client_fd = ring.accept_safe(listener_fd).await?;
             let mut buffer = PinnedBuffer::with_capacity(1024);
             let (bytes_received, mut buffer) = ring.recv(client_fd, buffer.as_mut_slice())?.await?;
             
@@ -218,7 +219,7 @@ async fn test_network_operation_error_handling() -> Result<(), Box<dyn std::erro
     assert!(result.is_err());
 
     // Test accept operation
-    let result = ring.accept(invalid_fd)?.await;
+    let result = ring.accept_safe(invalid_fd).await;
     assert!(result.is_err());
 
     Ok(())
