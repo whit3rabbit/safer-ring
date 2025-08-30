@@ -30,18 +30,21 @@
 //! - Error propagation in async contexts
 //! - Resource cleanup in async destructors
 
-use safer_ring::Ring;
+use safer_ring::{Ring, OwnedBuffer, BufferPool};
 use std::env;
-use std::time::Duration;
-use tokio::time::sleep;
+use std::fs::File;
+use std::io::Write;
+use std::os::unix::io::AsRawFd;
+use std::time::{Duration, Instant};
+use tokio::time::{sleep, timeout};
 
 /// Configuration for the async demonstration
 #[derive(Debug)]
 struct AsyncDemoConfig {
     /// Whether to use real files for I/O operations
     with_files: bool,
-    /// Whether to run concurrent operations demo
-    concurrent: bool,
+    /// Number of concurrent operations to run
+    concurrent: usize,
     /// Whether to run batch operations demo
     batch_demo: bool,
     /// Buffer size for operations
@@ -52,7 +55,7 @@ impl Default for AsyncDemoConfig {
     fn default() -> Self {
         Self {
             with_files: false,
-            concurrent: false,
+            concurrent: 3,
             batch_demo: true,
             buffer_size: 4096,
         }
@@ -67,7 +70,7 @@ impl AsyncDemoConfig {
         for arg in args.iter().skip(1) {
             match arg.as_str() {
                 "--with-files" => config.with_files = true,
-                "--concurrent" => config.concurrent = true,
+                "--concurrent" => config.concurrent = 5,
                 "--no-batch" => config.batch_demo = false,
                 _ => {}
             }
@@ -107,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if config.batch_demo {
             println!("\n📦 Running batch operations demo...");
-            run_batch_demo(&ring, &config).await?;
+            run_batch_demo(&mut ring, &config).await?;
         }
 
         println!("\n⏱️  Running timeout and cancellation demo...");
@@ -156,34 +159,25 @@ async fn run_basic_async_demo(
         let temp_file = create_temp_file("Hello, async world!")?;
         let temp_fd = temp_file.as_raw_fd();
 
-        // Sequential read operation
-        let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
-        let read_op = Operation::read()
-            .fd(temp_fd)
-            .buffer(buffer.as_mut_slice())
-            .offset(0);
+        // Sequential read operation using safer owned API
+        let buffer = OwnedBuffer::new(config.buffer_size);
+        let (bytes_read, read_buffer) = ring.read_owned(temp_fd, buffer).await?;
+        let data_str = if let Some(guard) = read_buffer.try_access() {
+            String::from_utf8_lossy(&guard[..bytes_read])
+        } else {
+            "Buffer not accessible".into()
+        };
+        println!("      📖 Read {} bytes: {}", bytes_read, data_str);
 
-        let (bytes_read, read_buffer) = ring.submit_read(read_op)?.await?;
-        println!(
-            "      📖 Read {} bytes: {}",
-            bytes_read,
-            String::from_utf8_lossy(&read_buffer[..bytes_read])
-        );
-
-        // Sequential write operation
+        // Sequential write operation using safer owned API
         let write_data = b"Appended data from async operation";
-        let mut write_buffer = PinnedBuffer::from_slice(write_data);
-        let write_op = Operation::write()
-            .fd(temp_fd)
-            .buffer(write_buffer.as_mut_slice())
-            .offset(bytes_read as u64);
-
-        let (bytes_written, _) = ring.submit_write(write_op)?.await?;
+        let write_buffer = OwnedBuffer::from_slice(write_data);
+        let (bytes_written, _) = ring.write_owned(temp_fd, write_buffer).await?;
         println!("      ✏️  Wrote {} bytes sequentially", bytes_written);
     } else {
         // Simulate operations without real files
-        let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
-        println!("      📦 Created buffer with {} bytes", buffer.len());
+        let buffer = OwnedBuffer::new(config.buffer_size);
+        println!("      📦 Created buffer with {} bytes", buffer.size());
 
         // Simulate async work
         sleep(Duration::from_millis(10)).await;
@@ -194,13 +188,8 @@ async fn run_basic_async_demo(
     println!("   2️⃣  Error handling...");
     let result = async {
         // This will fail with invalid file descriptor
-        let mut buffer = PinnedBuffer::with_capacity(64);
-        let invalid_op = Operation::read()
-            .fd(-1) // Invalid fd
-            .buffer(buffer.as_mut_slice())
-            .offset(0);
-
-        ring.submit_read(invalid_op)?.await
+        let buffer = OwnedBuffer::new(64);
+        ring.read_owned(-1, buffer).await // Invalid fd
     }
     .await;
 
@@ -213,17 +202,11 @@ async fn run_basic_async_demo(
     println!("   3️⃣  Chaining operations...");
     let chain_result = async {
         // Create a chain of async operations
-        let mut buffer1 = PinnedBuffer::with_capacity(128);
-        let mut buffer2 = PinnedBuffer::with_capacity(128);
-
-        // Fill first buffer
-        buffer1.as_mut_slice()[..5].copy_from_slice(b"Hello");
+        let buffer1 = OwnedBuffer::from_slice(b"Hello");
+        let buffer2 = OwnedBuffer::from_slice(b"World!");
 
         // Simulate processing
         sleep(Duration::from_millis(5)).await;
-
-        // Process into second buffer
-        buffer2.as_mut_slice()[..6].copy_from_slice(b"World!");
 
         Ok::<_, Box<dyn std::error::Error>>((buffer1, buffer2))
     }
@@ -253,38 +236,20 @@ async fn run_concurrent_demo(
         let file2 = create_temp_file("File 2 content")?;
         let file3 = create_temp_file("File 3 content")?;
 
-        let mut buffer1 = PinnedBuffer::with_capacity(config.buffer_size);
-        let mut buffer2 = PinnedBuffer::with_capacity(config.buffer_size);
-        let mut buffer3 = PinnedBuffer::with_capacity(config.buffer_size);
-
-        // Run three read operations concurrently
-        let (result1, result2, result3) = tokio::join!(
-            ring.submit_read(
-                Operation::read()
-                    .fd(file1.as_raw_fd())
-                    .buffer(buffer1.as_mut_slice())
-                    .offset(0)
-            )?,
-            ring.submit_read(
-                Operation::read()
-                    .fd(file2.as_raw_fd())
-                    .buffer(buffer2.as_mut_slice())
-                    .offset(0)
-            )?,
-            ring.submit_read(
-                Operation::read()
-                    .fd(file3.as_raw_fd())
-                    .buffer(buffer3.as_mut_slice())
-                    .offset(0)
-            )?
-        );
-
-        let (bytes1, _) = result1?;
-        let (bytes2, _) = result2?;
-        let (bytes3, _) = result3?;
+        // Note: We cannot run concurrent operations on the same ring since the safer APIs
+        // take &mut self. Each operation must complete before the next can start.
+        // This demonstrates sequential async operations instead.
+        let buffer1 = OwnedBuffer::new(config.buffer_size);
+        let (bytes1, _) = ring.read_owned(file1.as_raw_fd(), buffer1).await?;
+        
+        let buffer2 = OwnedBuffer::new(config.buffer_size);
+        let (bytes2, _) = ring.read_owned(file2.as_raw_fd(), buffer2).await?;
+        
+        let buffer3 = OwnedBuffer::new(config.buffer_size);
+        let (bytes3, _) = ring.read_owned(file3.as_raw_fd(), buffer3).await?;
 
         println!(
-            "      📊 Concurrent reads: {} + {} + {} = {} bytes",
+            "      📊 Sequential reads: {} + {} + {} = {} bytes",
             bytes1,
             bytes2,
             bytes3,
@@ -353,71 +318,52 @@ async fn run_concurrent_demo(
     Ok(())
 }
 
-/// Demonstrate batch operations with async
+/// Demonstrate sequential operations (simulating batch-like behavior)
 #[cfg(target_os = "linux")]
 async fn run_batch_demo(
-    ring: &Ring<'_>,
+    ring: &mut Ring<'_>,
     config: &AsyncDemoConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    println!("📦 Batch Operations:");
-
-    // Create a batch of operations
-    let mut batch = Batch::new();
-    let mut buffers = Vec::new();
+    println!("📦 Sequential Operations (Batch-style):");
 
     println!(
-        "   🔧 Creating batch with {} operations...",
+        "   🔧 Creating {} sequential operations...",
         config.concurrent
     );
 
     if config.with_files {
-        // Create operations with real files
+        let start_time = Instant::now();
+        let mut total_bytes = 0;
+        
+        // Process operations sequentially
         for i in 0..config.concurrent {
             let temp_file = create_temp_file(&format!("Batch file {} content", i))?;
-            let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
-
-            let read_op = Operation::read()
-                .fd(temp_file.as_raw_fd())
-                .buffer(buffer.as_mut_slice())
-                .offset(0);
-
-            batch.add_operation(read_op)?;
-            buffers.push((buffer, temp_file));
+            let buffer = OwnedBuffer::new(config.buffer_size);
+            
+            let (bytes_read, _) = ring.read_owned(temp_file.as_raw_fd(), buffer).await?;
+            total_bytes += bytes_read;
+        }
+        
+        let batch_time = start_time.elapsed();
+        println!("   📈 Sequential results:");
+        println!("      ✅ Operations completed: {}", config.concurrent);
+        println!("      📊 Total bytes read: {}", total_bytes);
+        println!("      ⏱️  Total time: {:?}", batch_time);
+        if config.concurrent > 0 {
+            println!(
+                "      📊 Average time per operation: {:?}",
+                batch_time / config.concurrent as u32
+            );
         }
     } else {
-        // Simulate batch operations
+        // Simulate operations
+        let mut buffers = Vec::new();
         for i in 0..std::cmp::min(config.concurrent, 4) {
-            let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
-
-            // Fill buffer with test data
-            let test_data = format!("Batch operation {}", i);
-            let bytes = test_data.as_bytes();
-            let copy_len = std::cmp::min(bytes.len(), buffer.len());
-            buffer.as_mut_slice()[..copy_len].copy_from_slice(&bytes[..copy_len]);
-
+            let test_data = format!("Sequential operation {}", i);
+            let buffer = OwnedBuffer::from_slice(test_data.as_bytes());
             buffers.push(buffer);
         }
-
-        println!("      📊 Simulated {} batch operations", buffers.len());
-    }
-
-    if config.with_files {
-        // Submit the batch and wait for completion
-        let start_time = Instant::now();
-        let batch_result = ring.submit_batch(batch)?.await?;
-        let batch_time = start_time.elapsed();
-
-        println!("   📈 Batch results:");
-        println!(
-            "      ✅ Successful operations: {}",
-            batch_result.successful_count
-        );
-        println!("      ❌ Failed operations: {}", batch_result.failed_count);
-        println!("      ⏱️  Total time: {:?}", batch_time);
-        println!(
-            "      📊 Average time per operation: {:?}",
-            batch_time / config.concurrent as u32
-        );
+        println!("      📊 Simulated {} operations", buffers.len());
     }
 
     Ok(())

@@ -6,12 +6,18 @@
 use safer_ring::Ring;
 
 #[cfg(target_os = "linux")]
+use {
+    safer_ring::{Operation, PinnedBuffer},
+    std::pin::Pin,
+};
+
+#[cfg(target_os = "linux")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Completion Queue Processing Demo");
     println!("================================");
 
     // Create a ring with 32 entries
-    let ring = Ring::new(32)?;
+    let mut ring = Ring::new(32)?;
     println!("Created ring with capacity: {}", ring.capacity());
 
     // Create a buffer for I/O operations
@@ -35,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Submit a read operation (this will likely fail since stdin might not be ready)
     let operation = Operation::read()
         .fd(0) // stdin
-        .buffer(Pin::new(buffer.as_mut_slice()));
+        .buffer(buffer.as_mut_slice());
 
     match ring.submit(operation) {
         Ok(submitted) => {

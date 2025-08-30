@@ -64,7 +64,8 @@ impl<'ring> Ring<'ring> {
     /// let mut ring = Ring::new(32)?;
     /// let mut buffer = PinnedBuffer::with_capacity(1024);
     ///
-    /// let (bytes_read, buffer) = ring.read(0, buffer.as_mut_slice()).await?;
+    /// let future = ring.read(0, buffer.as_mut_slice())?;
+    /// let (bytes_read, buffer) = future.await?;
     /// println!("Read {} bytes", bytes_read);
     /// # Ok(())
     /// # }
@@ -139,7 +140,8 @@ impl<'ring> Ring<'ring> {
     /// let data = b"Hello, world!";
     /// let mut buffer = PinnedBuffer::from_slice(data);
     ///
-    /// let (bytes_written, buffer) = ring.write(1, buffer.as_mut_slice()).await?;
+    /// let future = ring.write(1, buffer.as_mut_slice())?;
+    /// let (bytes_written, buffer) = future.await?;
     /// println!("Wrote {} bytes", bytes_written);
     /// # Ok(())
     /// # }
@@ -326,11 +328,12 @@ impl<'ring> Ring<'ring> {
     /// ```rust,no_run
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut buffer = PinnedBuffer::with_capacity(1024);
     ///
     /// // Read 1024 bytes starting at offset 4096
-    /// let (bytes_read, buffer) = ring.read_at(3, buffer.as_mut_slice(), 4096).await?;
+    /// let future = ring.read_at(3, buffer.as_mut_slice(), 4096)?;
+    /// let (bytes_read, buffer) = future.await?;
     /// println!("Read {} bytes from offset 4096", bytes_read);
     /// # Ok(())
     /// # }
@@ -371,12 +374,13 @@ impl<'ring> Ring<'ring> {
     /// ```rust,no_run
     /// # use safer_ring::{Ring, PinnedBuffer, Registry};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut registry = Registry::new();
     /// let registered_fd = registry.register_fd(0)?;
     /// let mut buffer = PinnedBuffer::with_capacity(1024);
     ///
-    /// let (bytes_read, buffer) = ring.read_registered(registered_fd, buffer.as_mut_slice()).await?;
+    /// let future = ring.read_registered(registered_fd, buffer.as_mut_slice())?;
+    /// let (bytes_read, buffer) = future.await?;
     /// println!("Read {} bytes using registered fd", bytes_read);
     /// # Ok(())
     /// # }
@@ -469,7 +473,7 @@ impl<'ring> Ring<'ring> {
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut buffer1 = PinnedBuffer::with_capacity(512);
     /// let mut buffer2 = PinnedBuffer::with_capacity(512);
     ///
@@ -478,7 +482,8 @@ impl<'ring> Ring<'ring> {
     ///     buffer2.as_mut_slice(),
     /// ];
     ///
-    /// let (bytes_read, buffers) = ring.read_vectored(0, buffers).await?;
+    /// let future = ring.read_vectored(0, buffers)?;
+    /// let (bytes_read, buffers) = future.await?;
     /// println!("Read {} bytes into {} buffers", bytes_read, buffers.len());
     /// # Ok(())
     /// # }
@@ -533,7 +538,7 @@ impl<'ring> Ring<'ring> {
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut buffer1 = PinnedBuffer::with_capacity(512);
     /// let mut buffer2 = PinnedBuffer::with_capacity(512);
     ///
@@ -543,7 +548,8 @@ impl<'ring> Ring<'ring> {
     /// ];
     ///
     /// // Read starting at offset 4096
-    /// let (bytes_read, buffers) = ring.read_vectored_at(3, buffers, 4096).await?;
+    /// let future = ring.read_vectored_at(3, buffers, 4096)?;
+    /// let (bytes_read, buffers) = future.await?;
     /// println!("Read {} bytes into {} buffers from offset 4096", bytes_read, buffers.len());
     /// # Ok(())
     /// # }
@@ -599,11 +605,12 @@ impl<'ring> Ring<'ring> {
     /// ```rust,no_run
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut buffer = PinnedBuffer::from_slice(b"Hello, world!");
     ///
     /// // Write 13 bytes starting at offset 4096
-    /// let (bytes_written, buffer) = ring.write_at(3, buffer.as_mut_slice(), 4096).await?;
+    /// let future = ring.write_at(3, buffer.as_mut_slice(), 4096)?;
+    /// let (bytes_written, buffer) = future.await?;
     /// println!("Wrote {} bytes at offset 4096", bytes_written);
     /// # Ok(())
     /// # }
@@ -644,12 +651,13 @@ impl<'ring> Ring<'ring> {
     /// ```rust,no_run
     /// # use safer_ring::{Ring, PinnedBuffer, Registry};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut registry = Registry::new();
     /// let registered_fd = registry.register_fd(1)?;
     /// let mut buffer = PinnedBuffer::from_slice(b"Hello, world!");
     ///
-    /// let (bytes_written, buffer) = ring.write_registered(registered_fd, buffer.as_mut_slice()).await?;
+    /// let future = ring.write_registered(registered_fd, buffer.as_mut_slice())?;
+    /// let (bytes_written, buffer) = future.await?;
     /// println!("Wrote {} bytes using registered fd", bytes_written);
     /// # Ok(())
     /// # }
@@ -742,7 +750,7 @@ impl<'ring> Ring<'ring> {
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut buffer1 = PinnedBuffer::from_slice(b"Hello, ");
     /// let mut buffer2 = PinnedBuffer::from_slice(b"world!");
     ///
@@ -751,7 +759,8 @@ impl<'ring> Ring<'ring> {
     ///     buffer2.as_mut_slice(),
     /// ];
     ///
-    /// let (bytes_written, buffers) = ring.write_vectored(1, buffers).await?;
+    /// let future = ring.write_vectored(1, buffers)?;
+    /// let (bytes_written, buffers) = future.await?;
     /// println!("Wrote {} bytes from {} buffers", bytes_written, buffers.len());
     /// # Ok(())
     /// # }
@@ -806,7 +815,7 @@ impl<'ring> Ring<'ring> {
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let mut buffer1 = PinnedBuffer::from_slice(b"Hello, ");
     /// let mut buffer2 = PinnedBuffer::from_slice(b"world!");
     ///
@@ -816,7 +825,8 @@ impl<'ring> Ring<'ring> {
     /// ];
     ///
     /// // Write starting at offset 4096
-    /// let (bytes_written, buffers) = ring.write_vectored_at(3, buffers, 4096).await?;
+    /// let future = ring.write_vectored_at(3, buffers, 4096)?;
+    /// let (bytes_written, buffers) = future.await?;
     /// println!("Wrote {} bytes from {} buffers at offset 4096", bytes_written, buffers.len());
     /// # Ok(())
     /// # }

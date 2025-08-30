@@ -6,10 +6,9 @@
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn test_buffer_ownership_after_completion() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    use safer_ring::{Operation, PinnedBuffer, Ring};
+    use safer_ring::{OwnedBuffer, Ring};
     use std::io::Write;
     use std::os::unix::io::FromRawFd;
-    use std::pin::Pin;
     use std::time::Duration;
     use tokio::time::timeout;
 
@@ -22,12 +21,8 @@ async fn test_buffer_ownership_after_completion() -> Result<(), Box<dyn std::err
     let _read_pipe = unsafe { std::fs::File::from_raw_fd(read_fd) };
     let mut write_pipe = unsafe { std::fs::File::from_raw_fd(write_fd) };
 
-    let mut ring = Ring::new(32)?;
-    let mut buffer = PinnedBuffer::with_capacity(1024);
-
-    // Create the read operation and submit it to get a future
-    let operation = Operation::read().fd(read_fd).buffer(buffer.as_mut_slice());
-    let read_future = ring.submit_read(operation)?;
+    let ring = Ring::new(32)?;
+    let buffer = OwnedBuffer::new(1024);
 
     // 2. Write to the pipe in a separate task to make the read operation completable
     tokio::spawn(async move {
@@ -36,8 +31,9 @@ async fn test_buffer_ownership_after_completion() -> Result<(), Box<dyn std::err
         write_pipe.flush().unwrap();
     });
 
-    // 3. Await the read operation with a timeout for test robustness
-    let (bytes_read, _returned_buffer_pin) = timeout(Duration::from_secs(2), read_future)
+    // 3. Create the read future using the safer owned API
+    let read_future = ring.read_owned(read_fd, buffer);
+    let (bytes_read, returned_buffer) = timeout(Duration::from_secs(2), read_future)
         .await
         .expect("Test timed out")
         .expect("Read operation failed");
@@ -45,11 +41,19 @@ async fn test_buffer_ownership_after_completion() -> Result<(), Box<dyn std::err
     // 4. Verify the read operation worked correctly
     assert_eq!(bytes_read, 5, "Should have read 5 bytes");
 
-    // 5. Now that the operation is complete, the mutable borrow has been released
-    // and we can access the buffer again. This demonstrates the buffer ownership model.
-    assert_eq!(buffer.len(), 1024);
-    assert_eq!(&buffer.as_slice()[..5], b"hello");
-    println!("✓ Original buffer is still accessible to the user after completion");
+    // 5. The buffer is returned to the user after completion with ownership transfer
+    // Access the returned buffer's data through the safe access methods
+    if let Some(guard) = returned_buffer.try_access() {
+        assert_eq!(guard.len(), 1024);
+        assert_eq!(&guard[..5], b"hello");
+        println!("✓ Buffer is returned to the user after completion with read data");
+    } else {
+        panic!("Buffer should be user-owned after completion");
+    }
+    
+    // 6. Verify buffer ownership state
+    assert!(returned_buffer.is_user_owned(), "Buffer should be user-owned after completion");
+    println!("✓ Buffer ownership is correctly transferred back to user");
     
     Ok(())
 }

@@ -46,7 +46,7 @@ use std::path::Path;
 
 #[cfg(target_os = "linux")]
 use {
-    safer_ring::{PinnedBuffer, Ring},
+    safer_ring::{OwnedBuffer, Ring},
     std::net::TcpListener,
     std::os::unix::io::AsRawFd,
     std::sync::Arc,
@@ -223,7 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📡 HTTPS server listening on {}", config.bind_address);
 
     // Create io_uring instance
-    let ring = Ring::new(config.ring_size)?;
+    let mut ring = Ring::new(config.ring_size)?;
     println!("⚡ Created io_uring with {} entries", config.ring_size);
 
     // Initialize statistics
@@ -256,7 +256,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Accept and handle connections
     loop {
-        match ring.accept(listener_fd).await {
+        match ring.accept_safe(listener_fd).await {
             Ok(client_fd) => {
                 // Update connection statistics
                 {
@@ -266,41 +266,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("🔌 New HTTPS connection: fd {}", client_fd);
 
-                // Handle the client in a separate task
-                let ring_ref = &ring;
-                let tls_context_ref = &tls_context;
-                let stats_clone = Arc::clone(&stats);
+                // Handle the client sequentially to avoid Sync issues with Ring.
+                let start_time = Instant::now();
                 let buffer_size = config.buffer_size;
+                let result = handle_https_client(
+                    &mut ring,
+                    &tls_context,
+                    client_fd,
+                    buffer_size,
+                    &stats,
+                )
+                .await;
 
-                tokio::spawn(async move {
-                    let start_time = Instant::now();
-                    let result = handle_https_client(
-                        ring_ref,
-                        tls_context_ref,
-                        client_fd,
-                        buffer_size,
-                        &stats_clone,
-                    )
-                    .await;
-
-                    match result {
-                        Ok(_) => {
-                            println!(
-                                "✅ HTTPS connection {} completed ({:?})",
-                                client_fd,
-                                start_time.elapsed()
-                            );
-                        }
-                        Err(e) => {
-                            eprintln!("❌ HTTPS connection {} error: {}", client_fd, e);
-                        }
+                match result {
+                    Ok(_) => {
+                        println!(
+                            "✅ HTTPS connection {} completed ({:?})",
+                            client_fd,
+                            start_time.elapsed()
+                        );
                     }
-
-                    // Close the client socket
-                    unsafe {
-                        libc::close(client_fd);
+                    Err(e) => {
+                        eprintln!("❌ HTTPS connection {} error: {}", client_fd, e);
                     }
-                });
+                }
+
+                // Close the client socket
+                unsafe {
+                    libc::close(client_fd);
+                }
             }
             Err(e) => {
                 eprintln!("❌ Failed to accept HTTPS connection: {}", e);
@@ -312,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Handle a single HTTPS client connection
 #[cfg(target_os = "linux")]
 async fn handle_https_client(
-    ring: &Ring<'_>,
+    ring: &mut Ring<'_>,
     tls_context: &TlsContext,
     client_fd: i32,
     buffer_size: usize,
@@ -337,11 +331,10 @@ async fn handle_https_client(
     );
 
     // Handle HTTPS requests
-    let mut buffer = PinnedBuffer::with_capacity(buffer_size);
-
     loop {
         // Read HTTP request (encrypted data if not using kTLS)
-        let (bytes_received, buffer_back) = ring.recv(client_fd, buffer.as_mut_slice()).await?;
+        let buffer = OwnedBuffer::new(buffer_size);
+        let (bytes_received, buffer_back) = ring.read_owned(client_fd, buffer).await?;
 
         if bytes_received == 0 {
             // Client closed connection
@@ -355,12 +348,17 @@ async fn handle_https_client(
         }
 
         // Decrypt request if not using kTLS
-        let request_data = if tls_session.ktls_enabled {
-            // With kTLS, data is already decrypted by kernel
-            &buffer_back.as_ref()[..bytes_received]
+        let request_data = if let Some(guard) = buffer_back.try_access() {
+            let slice = guard.as_slice();
+            if tls_session.ktls_enabled {
+                // With kTLS, data is already decrypted by kernel
+                &slice[..bytes_received]
+            } else {
+                // Decrypt in userspace (simplified for demo)
+                decrypt_tls_data(&tls_session, &slice[..bytes_received])?
+            }
         } else {
-            // Decrypt in userspace (simplified for demo)
-            decrypt_tls_data(&tls_session, &buffer_back.as_ref()[..bytes_received])?
+            return Err("Buffer not accessible".into());
         };
 
         // Parse HTTP request (simplified)
@@ -384,7 +382,8 @@ async fn handle_https_client(
         };
 
         // Send response
-        let (bytes_sent, _) = ring.send(client_fd, encrypted_response).await?;
+        let send_buffer = OwnedBuffer::from_slice(encrypted_response);
+        let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
 
         // Update send statistics
         {
@@ -417,33 +416,35 @@ struct TlsSession {
 /// Perform TLS handshake (simplified implementation)
 #[cfg(target_os = "linux")]
 async fn perform_tls_handshake(
-    ring: &Ring<'_>,
+    ring: &mut Ring<'_>,
     tls_context: &TlsContext,
     client_fd: i32,
     buffer_size: usize,
 ) -> Result<TlsSession, Box<dyn std::error::Error>> {
-    let mut buffer = PinnedBuffer::with_capacity(buffer_size);
-
     // Simplified TLS handshake simulation
     // In a real implementation, this would use a proper TLS library like rustls or openssl
 
     // 1. Receive ClientHello
-    let (bytes_received, _) = ring.recv(client_fd, buffer.as_mut_slice()).await?;
+    let buffer = OwnedBuffer::new(buffer_size);
+    let (bytes_received, _) = ring.read_owned(client_fd, buffer).await?;
     println!("🔍 Received ClientHello: {} bytes", bytes_received);
 
     // 2. Send ServerHello, Certificate, ServerHelloDone
     let server_hello = create_server_hello_response(tls_context);
-    let (bytes_sent, _) = ring.send(client_fd, server_hello.as_bytes()).await?;
+    let send_buffer = OwnedBuffer::from_slice(server_hello.as_bytes());
+    let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
     println!("📤 Sent ServerHello: {} bytes", bytes_sent);
 
     // 3. Receive ClientKeyExchange, ChangeCipherSpec, Finished
-    let (bytes_received, _) = ring.recv(client_fd, buffer.as_mut_slice()).await?;
+    let buffer = OwnedBuffer::new(buffer_size);
+    let (bytes_received, _) = ring.read_owned(client_fd, buffer).await?;
     println!("🔍 Received client key exchange: {} bytes", bytes_received);
 
     // 4. Send ChangeCipherSpec, Finished
     let server_finished =
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nTLS Handshake Complete";
-    let (bytes_sent, _) = ring.send(client_fd, server_finished.as_bytes()).await?;
+    let send_buffer = OwnedBuffer::from_slice(server_finished.as_bytes());
+    let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
     println!("📤 Sent server finished: {} bytes", bytes_sent);
 
     // 5. Enable kTLS if available

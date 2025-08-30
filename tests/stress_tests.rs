@@ -1,6 +1,8 @@
 //! Stress tests for high-throughput scenarios and resource management.
 
 use safer_ring::{BufferPool, PinnedBuffer};
+#[cfg(target_os = "linux")]
+use safer_ring::Ring;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;

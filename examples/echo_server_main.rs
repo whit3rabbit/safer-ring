@@ -12,10 +12,15 @@
 // Note: Using the echo_server module from the subdirectory
 #[path = "echo_server/mod.rs"]
 mod echo_server;
-use echo_server::ServerStats;
-use safer_ring::{PinnedBuffer, Ring};
-use std::pin::Pin;
-use std::sync::Arc;
+#[cfg(target_os = "linux")]
+use {
+    echo_server::{ServerConfig, ServerStats},
+    safer_ring::{OwnedBuffer, Ring},
+    std::net::TcpListener,
+    std::time::Instant,
+    std::sync::Arc,
+    std::os::unix::io::AsRawFd,
+};
 
 #[cfg(target_os = "linux")]
 #[tokio::main]
@@ -64,55 +69,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
 
-    // Accept and handle connections sequentially
+    // Main accept loop - each connection gets its own task with its own Ring
     loop {
-        match ring.accept(listener_fd)?.await {
-            Ok(client_fd) => {
-                {
-                    let mut stats = stats.lock().await;
-                    stats.connections_accepted += 1;
-                    stats.active_connections += 1;
-                }
-
-                println!("🔌 New connection: fd {}", client_fd);
-
-                // Handle the client sequentially to avoid Sync issues with Ring.
-                // For a concurrent server, use a worker-per-core model with one Ring each.
-                let stats_clone = Arc::clone(&stats);
-                let buffer_size = config.buffer_size;
-                let start_time = Instant::now();
-
-                let result = handle_client(&mut ring, client_fd, buffer_size, &stats_clone).await;
-
-                {
-                    let mut stats = stats_clone.lock().await;
-                    stats.active_connections -= 1;
-                }
-
-                match result {
-                    Ok(bytes_processed) => {
-                        println!(
-                            "✅ Connection {} closed cleanly ({} bytes, {:?})",
-                            client_fd,
-                            bytes_processed,
-                            start_time.elapsed()
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("❌ Error handling client {}: {}", client_fd, e);
-                    }
-                }
-
-                // Close the client socket
-                unsafe {
-                    libc::close(client_fd);
-                }
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to accept connection: {}", e);
-                // Continue accepting other connections
-            }
+        let client_fd = ring.accept_safe(listener_fd).await?;
+        {
+            let mut stats_guard = stats.lock().await;
+            stats_guard.connection_accepted();
         }
+        
+        println!("🔌 New connection: fd {}", client_fd);
+
+        // Spawn a new task for each client. Each task gets its own Ring.
+        let stats_clone = Arc::clone(&stats);
+        let buffer_size = config.buffer_size;
+        tokio::spawn(async move {
+            // Each task creates its own Ring instance. This is the key to avoiding borrow conflicts.
+            let mut client_ring = Ring::new(32).expect("Failed to create ring for client task");
+            let start_time = Instant::now();
+
+            let result = handle_client(&mut client_ring, client_fd, buffer_size, &stats_clone).await;
+
+            {
+                let mut stats_guard = stats_clone.lock().await;
+                stats_guard.connection_closed();
+            }
+
+            match result {
+                Ok(bytes) => println!(
+                    "✅ Connection {} closed ({} bytes, {:?})",
+                    client_fd, bytes, start_time.elapsed()
+                ),
+                Err(e) => eprintln!("❌ Error on fd {}: {}", client_fd, e),
+            }
+
+            unsafe { libc::close(client_fd) };
+        });
     }
 
     println!("👋 Server shutting down gracefully...");
@@ -130,24 +121,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Handle a single client connection with comprehensive error handling and statistics
 #[cfg(target_os = "linux")]
-async fn handle_client(
-    ring: &mut Ring<'_>,
+async fn handle_client<'a>(
+    ring: &'a mut Ring<'a>,
     client_fd: i32,
     buffer_size: usize,
     stats: &Arc<tokio::sync::Mutex<ServerStats>>,
-) -> Result<u64, Box<dyn std::error::Error>> {
-    let mut buffer = PinnedBuffer::with_capacity(buffer_size);
+) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     let mut total_bytes_processed = 0u64;
 
     loop {
         // Receive data from the client with timeout handling
+        let buffer = OwnedBuffer::new(buffer_size);
+        let receive_future = ring.read_owned(client_fd, buffer);
         let receive_result = tokio::time::timeout(
             tokio::time::Duration::from_secs(30),
-            ring.recv(client_fd, buffer.as_mut_slice())?,
+            receive_future,
         )
         .await;
 
-        let (bytes_received, mut buffer_back) = match receive_result {
+        let (bytes_received, buffer_back) = match receive_result {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
                 // I/O error
@@ -168,34 +160,45 @@ async fn handle_client(
         // Update receive statistics
         {
             let mut stats = stats.lock().await;
-            stats.bytes_received += bytes_received as u64;
+            stats.bytes_received(bytes_received);
         }
 
         // Log received data (truncated for readability)
-        let data_preview = if bytes_received > 50 {
-            format!(
-                "{}... ({} bytes)",
-                String::from_utf8_lossy(&buffer_back.as_ref()[..50]),
-                bytes_received
-            )
+        let data_preview = if let Some(guard) = buffer_back.try_access() {
+            let slice = guard.as_slice();
+            if bytes_received > 50 {
+                format!(
+                    "{}... ({} bytes)",
+                    String::from_utf8_lossy(&slice[..50]),
+                    bytes_received
+                )
+            } else {
+                format!(
+                    "{} ({} bytes)",
+                    String::from_utf8_lossy(&slice[..bytes_received]),
+                    bytes_received
+                )
+            }
         } else {
-            format!(
-                "{} ({} bytes)",
-                String::from_utf8_lossy(&buffer_back.as_ref()[..bytes_received]),
-                bytes_received
-            )
+            format!("Buffer not accessible ({} bytes)", bytes_received)
         };
         println!("📥 fd {}: {}", client_fd, data_preview);
 
         // Echo the data back to the client
-        // We only send back the actual data received, not the full buffer
-        let echo_slice = &mut buffer_back.as_mut()[..bytes_received];
-        let (bytes_sent, _buffer_returned) = ring.send(client_fd, Pin::new(echo_slice))?.await?;
+        // Create echo buffer with just the data we received
+        let echo_data = if let Some(guard) = buffer_back.try_access() {
+            guard.as_slice()[..bytes_received].to_vec()
+        } else {
+            return Err("Buffer not accessible for echo".into());
+        };
+        
+        let echo_buffer = OwnedBuffer::from_slice(&echo_data);
+        let (bytes_sent, _buffer_returned) = ring.write_owned(client_fd, echo_buffer).await?;
 
         // Update send statistics
         {
             let mut stats = stats.lock().await;
-            stats.bytes_sent += bytes_sent as u64;
+            stats.bytes_sent(bytes_sent);
         }
 
         total_bytes_processed += bytes_received as u64;
@@ -209,9 +212,6 @@ async fn handle_client(
                 client_fd, bytes_sent, bytes_received
             );
         }
-        // No need to reassign `buffer`. The `PinnedBuffer` owns the memory,
-        // and the `recv` operation modified its contents in place.
-        // It's ready to be used in the next loop iteration.
     }
 
     Ok(total_bytes_processed)
