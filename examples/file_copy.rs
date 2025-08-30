@@ -277,7 +277,7 @@ async fn copy_file_simple(
             // Read from the source file at the specified offset
             println!("📖 Reading {} bytes at offset {}", chunk_size, offset);
 
-            let read_future = ring.read_at(source_fd, buffer.as_mut_slice(), offset);
+            let read_future = ring.read_at(source_fd, buffer.as_mut_slice(), offset)?;
             active_operations.push((read_future, offset));
             offset += chunk_size;
         }
@@ -296,7 +296,7 @@ async fn copy_file_simple(
                         let write_buffer = &read_buffer[..bytes_read];
                         let mut write_pinned = PinnedBuffer::new(write_buffer.to_vec());
                         let (_bytes_written, _) = ring
-                            .write_at(dest_fd, write_pinned.as_mut_slice(), op_offset)
+                            .write_at(dest_fd, write_pinned.as_mut_slice(), op_offset)?
                             .await?;
 
                         // Update statistics
@@ -328,7 +328,7 @@ async fn copy_file_simple(
                     let write_buffer = &read_buffer[..bytes_read];
                     let mut write_pinned = PinnedBuffer::new(write_buffer.to_vec());
                     let (_bytes_written, _) = ring
-                        .write_at(dest_fd, write_pinned.as_mut_slice(), op_offset)
+                        .write_at(dest_fd, write_pinned.as_mut_slice(), op_offset)?
                         .await?;
 
                     stats.update(bytes_read as u64);

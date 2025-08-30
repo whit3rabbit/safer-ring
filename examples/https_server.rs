@@ -254,11 +254,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
 
-    // Accept and handle connections
+    // Accept and handle connections in the main event loop
+    // 
+    // EDUCATIONAL NOTE: This demonstrates safer-ring's sequential async pattern.
+    // Each connection is handled one at a time to maintain memory safety.
     loop {
+        // Accept new connections using safer-ring's safe accept API
+        // accept_safe() returns a Future<Output=Result<i32, Error>> 
+        // where i32 is the new client file descriptor
         match ring.accept_safe(listener_fd).await {
             Ok(client_fd) => {
-                // Update connection statistics
+                // Update connection statistics atomically
+                // Using Arc<Mutex<_>> for thread-safe statistics sharing
                 {
                     let mut stats = stats.lock().await;
                     stats.connections_accepted += 1;
@@ -266,7 +273,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("🔌 New HTTPS connection: fd {}", client_fd);
 
-                // Handle the client sequentially to avoid Sync issues with Ring.
+                // Handle the client connection sequentially
+                //
+                // IMPORTANT: safer-ring operations are sequential by design for safety!
+                // The owned APIs (read_owned, write_owned) take &mut self, meaning:
+                // 1. Only one operation can be in progress at a time per Ring instance
+                // 2. This prevents data races and memory safety issues  
+                // 3. The borrow checker enforces this at compile time
+                //
+                // For concurrent connections, you would need multiple Ring instances
+                // or use a different architecture (like a connection pool).
                 let start_time = Instant::now();
                 let buffer_size = config.buffer_size;
                 let result = handle_https_client(
@@ -291,7 +307,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                // Close the client socket
+                // Close the client socket when done
+                //
+                // EDUCATIONAL NOTE: We use unsafe here for socket cleanup because:
+                // 1. safer-ring doesn't provide a safe close() wrapper yet
+                // 2. This is safe because we're done with all I/O on this fd
+                // 3. In production, consider using a Socket wrapper that auto-closes
                 unsafe {
                     libc::close(client_fd);
                 }
@@ -312,7 +333,11 @@ async fn handle_https_client(
     buffer_size: usize,
     stats: &Arc<tokio::sync::Mutex<HttpsStats>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Perform TLS handshake
+    // Perform TLS handshake using safer-ring I/O operations
+    //
+    // EDUCATIONAL NOTE: This demonstrates a simplified TLS handshake.
+    // In production, you would use a proper TLS library like rustls or openssl.
+    // This example focuses on showing safer-ring's I/O patterns rather than TLS details.
     println!("🤝 Starting TLS handshake for fd {}", client_fd);
     let tls_session = perform_tls_handshake(ring, tls_context, client_fd, buffer_size).await?;
 
@@ -330,14 +355,20 @@ async fn handle_https_client(
         client_fd, tls_session.ktls_enabled
     );
 
-    // Handle HTTPS requests
+    // Handle HTTPS requests in a keep-alive loop
     loop {
-        // Read HTTP request (encrypted data if not using kTLS)
+        // Read HTTP request data using safer-ring's ownership model
+        //
+        // EDUCATIONAL NOTE: OwnedBuffer demonstrates the "hot potato" pattern:
+        // 1. We create a buffer and give ownership to safer-ring
+        // 2. The buffer is "loaned" to the kernel during the I/O operation
+        // 3. Both the result AND the buffer are returned to us when complete
+        // 4. This prevents use-after-free bugs common with raw io_uring
         let buffer = OwnedBuffer::new(buffer_size);
         let (bytes_received, buffer_back) = ring.read_owned(client_fd, buffer).await?;
 
         if bytes_received == 0 {
-            // Client closed connection
+            // Client closed connection gracefully
             break;
         }
 
@@ -348,21 +379,27 @@ async fn handle_https_client(
         }
 
         // Decrypt request if not using kTLS
-        let request_data = if let Some(guard) = buffer_back.try_access() {
-            let slice = guard.as_slice();
+        // 
+        // EDUCATIONAL NOTE: BufferAccessGuard provides safe access to buffer data
+        // through the Deref trait. We need to extract the data within the guard's lifetime.
+        let request_data: Vec<u8> = if let Some(guard) = buffer_back.try_access() {
+            // BufferAccessGuard implements Deref<Target=[u8]>, so we can use it directly
+            // This is safer-ring's ownership model ensuring the buffer is user-owned
+            let slice = &guard[..bytes_received];
             if tls_session.ktls_enabled {
                 // With kTLS, data is already decrypted by kernel
-                &slice[..bytes_received]
+                slice.to_vec() // Copy the data out of the guard's lifetime
             } else {
                 // Decrypt in userspace (simplified for demo)
-                decrypt_tls_data(&tls_session, &slice[..bytes_received])?
+                // For this demo, we'll just copy the "encrypted" data
+                decrypt_tls_data(&tls_session, slice)?.to_vec()
             }
         } else {
             return Err("Buffer not accessible".into());
         };
 
         // Parse HTTP request (simplified)
-        let request_str = String::from_utf8_lossy(request_data);
+        let request_str = String::from_utf8_lossy(&request_data);
         println!(
             "📥 HTTPS request from fd {}: {}",
             client_fd,
@@ -381,7 +418,13 @@ async fn handle_https_client(
             encrypt_tls_data(&tls_session, response.as_bytes())?
         };
 
-        // Send response
+        // Send HTTPS response using safer-ring's owned buffer pattern
+        //
+        // EDUCATIONAL NOTE: OwnedBuffer::from_slice() copies the data into a new buffer
+        // that can be safely transferred to the kernel. This ensures:
+        // 1. No dangling pointers if our response data goes out of scope
+        // 2. Safe ownership transfer during the async write operation  
+        // 3. The buffer is returned to us when the write completes
         let send_buffer = OwnedBuffer::from_slice(encrypted_response);
         let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
 
@@ -413,7 +456,17 @@ struct TlsSession {
     _session_data: Vec<u8>,
 }
 
-/// Perform TLS handshake (simplified implementation)
+/// Perform TLS handshake (simplified implementation for educational purposes)
+///
+/// EDUCATIONAL NOTE: This function demonstrates safer-ring's async I/O patterns
+/// in the context of a TLS handshake. Key learning points:
+///
+/// 1. **Ownership Transfer**: Each read_owned/write_owned call transfers buffer ownership
+/// 2. **Sequential Operations**: Operations happen one at a time for safety
+/// 3. **Error Propagation**: Async errors are properly handled with ?
+/// 4. **Buffer Reuse**: We get buffers back and can reuse them
+///
+/// In production, use a real TLS library like rustls, openssl, or boring.
 #[cfg(target_os = "linux")]
 async fn perform_tls_handshake(
     ring: &mut Ring<'_>,
@@ -421,10 +474,11 @@ async fn perform_tls_handshake(
     client_fd: i32,
     buffer_size: usize,
 ) -> Result<TlsSession, Box<dyn std::error::Error>> {
-    // Simplified TLS handshake simulation
-    // In a real implementation, this would use a proper TLS library like rustls or openssl
+    // This is a simplified TLS handshake for demonstration
+    // Real TLS involves complex cryptography and state machines
 
-    // 1. Receive ClientHello
+    // 1. Receive ClientHello message
+    // Each I/O operation follows the ownership transfer pattern
     let buffer = OwnedBuffer::new(buffer_size);
     let (bytes_received, _) = ring.read_owned(client_fd, buffer).await?;
     println!("🔍 Received ClientHello: {} bytes", bytes_received);
@@ -501,24 +555,36 @@ fn create_server_hello_response(tls_context: &TlsContext) -> String {
 }
 
 /// Decrypt TLS data (placeholder implementation)
+///
+/// EDUCATIONAL NOTE: In a real implementation, this would:
+/// 1. Use the TLS session's cipher suite to decrypt the data
+/// 2. Verify MAC/AEAD authentication tags
+/// 3. Handle TLS record layer framing
+/// 4. Return plaintext HTTP data
 #[allow(dead_code)]
 fn decrypt_tls_data<'a>(
     _session: &TlsSession,
     encrypted_data: &'a [u8],
 ) -> Result<&'a [u8], Box<dyn std::error::Error>> {
     // In a real implementation, this would use the TLS session to decrypt
-    // For demo purposes, we'll just return the data as-is
+    // For demo purposes, we'll just return the data as-is (pretend it's decrypted)
     Ok(encrypted_data)
 }
 
 /// Encrypt TLS data (placeholder implementation)
+///
+/// EDUCATIONAL NOTE: In a real implementation, this would:
+/// 1. Frame the data as TLS records
+/// 2. Apply the negotiated cipher suite encryption
+/// 3. Add MAC or AEAD authentication tags
+/// 4. Return encrypted data ready for transmission
 #[allow(dead_code)]
 fn encrypt_tls_data<'a>(
     _session: &TlsSession,
     plaintext: &'a [u8],
 ) -> Result<&'a [u8], Box<dyn std::error::Error>> {
     // In a real implementation, this would use the TLS session to encrypt
-    // For demo purposes, we'll just return the data as-is
+    // For demo purposes, we'll just return the data as-is (pretend it's encrypted)
     Ok(plaintext)
 }
 
