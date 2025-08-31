@@ -1,9 +1,10 @@
 //! Safe ownership transfer operations (hot potato pattern) for the Ring.
 
 use super::Ring;
-use crate::error::Result;
+use crate::error::{Result, SaferRingError};
 use crate::ownership::OwnedBuffer;
 use crate::safety::{SafeAcceptFuture, SafeOperation, SafeOperationFuture};
+use std::io;
 use std::os::unix::io::RawFd;
 use std::sync::Arc;
 
@@ -112,6 +113,130 @@ impl<'ring> Ring<'ring> {
 
         // Submit the operation to the backend
         match self.submit_safe_write(fd, &buffer, submission_id) {
+            Ok(_) => {
+                // Create safe operation with ownership transfer
+                let operation =
+                    SafeOperation::new(buffer, submission_id, Arc::downgrade(&self.orphan_tracker));
+
+                operation.into_future(self, self.waker_registry.clone())
+            }
+            Err(_e) => {
+                // If submission fails, create a failed future
+                SafeOperation::failed(buffer, submission_id, Arc::downgrade(&self.orphan_tracker))
+                    .into_future(self, self.waker_registry.clone())
+            }
+        }
+    }
+
+    /// Read with ownership transfer at a specific offset (hot potato pattern).
+    ///
+    /// This is the safe, recommended API for positioned file reads.
+    /// You give the buffer, the kernel uses it at the specified offset, 
+    /// and you get it back when done.
+    ///
+    /// # Arguments
+    ///
+    /// * `fd` - File descriptor to read from
+    /// * `buffer` - Buffer to read into (ownership transferred)
+    /// * `offset` - Byte offset in the file to start reading from
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to `(bytes_read, buffer)` when the operation completes.
+    /// The buffer is returned with the result, implementing the hot potato pattern.
+    ///
+    /// # Safety
+    ///
+    /// This method is completely safe. The buffer ownership is transferred to the
+    /// kernel during the operation, preventing any use-after-free issues.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use safer_ring::{Ring, OwnedBuffer};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let ring = Ring::new(32)?;
+    /// let buffer = OwnedBuffer::new(1024);
+    ///
+    /// // Hot potato: give buffer, get it back
+    /// let (bytes_read, buffer) = ring.read_at_owned(0, buffer, 100).await?;
+    /// println!("Read {} bytes at offset 100", bytes_read);
+    ///
+    /// // Can reuse the same buffer for next read
+    /// let (bytes_read2, _buffer) = ring.read_at_owned(0, buffer, 200).await?;
+    /// println!("Read {} more bytes at offset 200", bytes_read2);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn read_at_owned(&self, fd: RawFd, buffer: OwnedBuffer, offset: u64) -> SafeOperationFuture<'_> {
+        // Generate unique submission ID
+        let submission_id = {
+            let mut tracker = self.orphan_tracker.lock().unwrap();
+            tracker.next_submission_id()
+        };
+
+        // Submit the operation to the backend
+        match self.submit_safe_read_at(fd, &buffer, offset, submission_id) {
+            Ok(_) => {
+                // Create safe operation with ownership transfer
+                let operation =
+                    SafeOperation::new(buffer, submission_id, Arc::downgrade(&self.orphan_tracker));
+
+                operation.into_future(self, self.waker_registry.clone())
+            }
+            Err(_e) => {
+                // If submission fails, create a failed future
+                SafeOperation::failed(buffer, submission_id, Arc::downgrade(&self.orphan_tracker))
+                    .into_future(self, self.waker_registry.clone())
+            }
+        }
+    }
+
+    /// Write with ownership transfer at a specific offset (hot potato pattern).
+    ///
+    /// This is the safe, recommended API for positioned file writes.
+    /// You give the buffer, the kernel uses it at the specified offset,
+    /// and you get it back when done.
+    ///
+    /// # Arguments
+    ///
+    /// * `fd` - File descriptor to write to
+    /// * `buffer` - Buffer to write from (ownership transferred)
+    /// * `offset` - Byte offset in the file to start writing at
+    /// * `len` - Number of bytes from the buffer to write
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to `(bytes_written, buffer)` when the operation completes.
+    /// The buffer is returned with the result, implementing the hot potato pattern.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use safer_ring::{Ring, OwnedBuffer};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let ring = Ring::new(32)?;
+    /// let buffer = OwnedBuffer::from_slice(b"Hello, world!");
+    ///
+    /// // Hot potato: give buffer, get it back
+    /// let (bytes_written, buffer) = ring.write_at_owned(1, buffer, 100, 13).await?;
+    /// println!("Wrote {} bytes at offset 100", bytes_written);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn write_at_owned(&self, fd: RawFd, buffer: OwnedBuffer, offset: u64, len: usize) -> SafeOperationFuture<'_> {
+        // Generate unique submission ID
+        let submission_id = {
+            let mut tracker = self.orphan_tracker.lock().unwrap();
+            tracker.next_submission_id()
+        };
+
+        // Submit the operation to the backend
+        match self.submit_safe_write_at(fd, &buffer, offset, len, submission_id) {
             Ok(_) => {
                 // Create safe operation with ownership transfer
                 let operation =
@@ -261,6 +386,46 @@ impl<'ring> Ring<'ring> {
             0, // offset 0 for simple writes
             buffer_ptr,
             buffer_len,
+            submission_id,
+        )
+    }
+
+    /// Submit a safe read operation with an offset to the backend.
+    ///
+    /// This method submits the read operation directly to the backend using
+    /// the buffer's raw pointer, since we have ownership transfer semantics.
+    fn submit_safe_read_at(&self, fd: RawFd, buffer: &OwnedBuffer, offset: u64, submission_id: u64) -> Result<()> {
+        let (buffer_ptr, buffer_len) = buffer.as_ptr_and_len();
+
+        self.backend.borrow_mut().submit_operation(
+            crate::operation::OperationType::Read,
+            fd,
+            offset, // Pass the offset
+            buffer_ptr,
+            buffer_len,
+            submission_id,
+        )
+    }
+
+    /// Submit a safe write operation with an offset to the backend.
+    ///
+    /// This method submits the write operation directly to the backend using
+    /// the buffer's raw pointer, since we have ownership transfer semantics.
+    fn submit_safe_write_at(&self, fd: RawFd, buffer: &OwnedBuffer, offset: u64, len: usize, submission_id: u64) -> Result<()> {
+        let (buffer_ptr, buffer_capacity) = buffer.as_ptr_and_len();
+        if len > buffer_capacity {
+            return Err(SaferRingError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Length to write exceeds buffer capacity",
+            )));
+        }
+
+        self.backend.borrow_mut().submit_operation(
+            crate::operation::OperationType::Write,
+            fd,
+            offset, // Pass the offset
+            buffer_ptr,
+            len, // Pass the specific length to write
             submission_id,
         )
     }

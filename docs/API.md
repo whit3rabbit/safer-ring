@@ -2,12 +2,16 @@
 
 This document provides a quick reference to the public API of `safer-ring`. It is organized by concept to help you find what you need quickly.
 
-The core safety principle of `safer-ring` is the **ownership transfer model ("hot potato" pattern)**. For maximum safety and ease of use, you should prefer the `*_owned` methods which take ownership of an `OwnedBuffer` and return it to you upon completion.
+The core safety principle of `safer-ring` is the **ownership transfer model ("hot potato" pattern)**. 
+
+> **🎯 CRITICAL: Always use OwnedBuffer with `*_owned` methods.** The `PinnedBuffer` API is fundamentally broken and cannot be used in real applications due to insurmountable lifetime constraints that prevent loops and buffer reuse.
+
+For maximum safety, performance, and ease of use, you **must** use the `*_owned` methods which take ownership of an `OwnedBuffer` and return it to you upon completion. The positioned variants (`read_at_owned`, `write_at_owned`) are perfect for file operations like copying and enable efficient buffer reuse.
 
 ## Table of Contents
 
 1.  [**Core: `Ring`**](#ring---the-core-component) - The main entry point for all I/O.
-2.  [**Buffer Management**](#buffer-management) - `OwnedBuffer` (Recommended) & `PinnedBuffer` (Advanced).
+2.  [**Buffer Management**](#buffer-management) - `OwnedBuffer` (✅ Use This) & `PinnedBuffer` (❌ Broken - Educational Only).
 3.  [**Batch Operations**](#batch-operations---batchring-buf) - Submitting multiple operations at once.
 4.  [**Buffer Pooling**](#buffer-pooling---bufferpool) - Efficient buffer reuse.
 5.  [**Performance & Registration**](#performance--registration---registryring) - Advanced performance tuning.
@@ -44,6 +48,16 @@ let (bytes, buf) = ring.read_owned(fd, buffer).await?;
 | `write_owned(fd, buffer: OwnedBuffer)` | **(Recommended)** Safely writes to a file descriptor. Takes ownership of the buffer and returns it upon completion. | ```rust
 let buffer = OwnedBuffer::from_slice(b"data");
 let (bytes, buf) = ring.write_owned(fd, buffer).await?;
+``` |
+| `read_at_owned(fd, buffer: OwnedBuffer, offset: u64)` | **(Recommended)** Safely reads from a file descriptor at a specific offset. Perfect for file operations and the hot potato pattern. | ```rust
+let buffer = OwnedBuffer::new(1024);
+let (bytes, buf) = ring.read_at_owned(fd, buffer, 100).await?;
+// Can reuse the returned buffer
+let (bytes2, buf2) = ring.read_at_owned(fd, buf, 200).await?;
+``` |
+| `write_at_owned(fd, buffer: OwnedBuffer, offset: u64, len: usize)` | **(Recommended)** Safely writes to a file descriptor at a specific offset. Takes ownership and returns the buffer, making it perfect for file copy operations. | ```rust
+let buffer = OwnedBuffer::from_slice(b"Hello, world!");
+let (bytes, buf) = ring.write_at_owned(fd, buffer, 100, 13).await?;
 ``` |
 | `accept_safe(listening_fd)` | Safely accepts a new network connection. Returns a future that resolves to the new client file descriptor. | ```rust
 // Assumes listen_fd is a valid listening socket
@@ -101,9 +115,9 @@ tokio::join!(f1, f2);
 
 ## Buffer Management
 
-### `OwnedBuffer` (Recommended & Safest)
+### `OwnedBuffer` (✅ **REQUIRED - The Only Practical Choice**)
 
-A buffer designed for safe ownership transfer with the kernel.
+A buffer designed for safe ownership transfer with the kernel. **This is the only buffer type that works for real applications.**
 
 | Method | Description | Example Usage |
 | :--- | :--- | :--- |
@@ -115,17 +129,101 @@ A buffer designed for safe ownership transfer with the kernel.
 | `as_slice()` (*On `BufferAccessGuard`*) | Provides read-only access to the buffer's data. | `if let Some(guard) = buffer.try_access() { println!("{:?}", guard.as_slice()); }` |
 | `as_mut_slice()` (*On `BufferAccessGuard`*) | Provides mutable access to the buffer's data. | `if let Some(mut guard) = buffer.try_access() { guard.as_mut_slice().fill(0); }` |
 
-### `PinnedBuffer<T>` (Advanced)
+### `PinnedBuffer<T>` (⚠️ **FUNDAMENTALLY BROKEN - Do Not Use**)
 
-A buffer that is pinned in memory, required for the low-level, zero-copy API.
+> **🚨 CRITICAL WARNING**: The PinnedBuffer API has insurmountable design flaws that make it unusable for practical applications. This API exists only for educational purposes to demonstrate why certain Rust patterns don't work with io_uring.
 
-| Method | Description | Example Usage |
+**The PinnedBuffer API is fundamentally broken and cannot be used in real applications due to Rust's borrow checker constraints.**
+
+#### ❌ **The Fundamental Problem: Loops Are Impossible**
+
+The `read_at`, `write_at`, and similar methods have this signature:
+```rust
+pub fn read_at<'buf>(&'ring mut self, ...) where 'buf: 'ring
+```
+
+When used with `ring: &'a mut Ring<'a>`, this creates borrowing constraints that **cannot be satisfied in loops**:
+
+```rust
+// ❌ THIS NEVER WORKS - Fundamental API Limitation
+async fn impossible_example<'a>(ring: &'a mut Ring<'a>, ...) {
+    while condition {
+        let mut buffer = PinnedBuffer::with_capacity(1024);
+        let (bytes, _) = ring.read_at(fd, buffer.as_mut_slice(), offset)?.await?;
+        //                      ^^^^ First call borrows `ring` for entire 'a lifetime
+        //                           This prevents ALL subsequent iterations!
+        // COMPILE ERROR: cannot borrow `*ring` as mutable more than once
+    }
+}
+
+// ❌ RECURSION DOESN'T FIX IT EITHER
+async fn recursive_attempt<'a>(ring: &'a mut Ring<'a>, ...) {
+    let bytes_written = copy_one_chunk(ring, ...).await?; // Borrows ring for 'a
+    recursive_attempt(ring, ...).await?;                  // ERROR: ring still borrowed!
+}
+
+// ❌ EVEN BUFFER REUSE IS IMPOSSIBLE
+async fn buffer_reuse_attempt<'a>(
+    ring: &'a mut Ring<'a>, 
+    buffer: &'a mut PinnedBuffer<[u8]>  // Try to reuse buffer
+) {
+    // First operation works
+    let (bytes1, _) = ring.read_at(fd, buffer.as_mut_slice(), 0)?.await?;
+    
+    // Second operation FAILS - buffer is still borrowed!
+    let (bytes2, _) = ring.read_at(fd, buffer.as_mut_slice(), 100)?.await?;
+    // ERROR: cannot borrow `*buffer` as mutable more than once
+}
+```
+
+#### 🔥 **Why This Cannot Be Fixed**
+
+1. **The `&'ring mut self` signature** borrows the ring for the entire `'ring` lifetime
+2. **With `ring: &'a mut Ring<'a>`**, each operation borrows the ring for the full `'a` lifetime  
+3. **This makes multiple operations impossible** - the first operation's borrow prevents all subsequent operations
+4. **No Rust pattern can work around this** - not loops, not recursion, not scoping
+5. **Buffer reuse is impossible** - each operation requires new buffer allocations
+
+#### 🚨 **Performance Reality**
+
+- **Cannot reuse buffers** → Constant allocations for every operation
+- **No loops possible** → Must allocate new buffers in every "iteration" 
+- **Worse than OwnedBuffer** in every measurable way (allocations, performance, complexity)
+- **The "zero-copy" promise is false** - you still must copy data out of returned slices
+
+#### ✅ **Use OwnedBuffer Instead**
+
+OwnedBuffer solves all these problems:
+
+```rust
+// ✅ THIS WORKS - Natural loops with buffer reuse
+async fn working_example(ring: &Ring<'_>, mut buffer: OwnedBuffer) -> Result<(), Error> {
+    while condition {
+        // Transfer ownership to kernel, get it back when done
+        let (bytes, returned_buffer) = ring.read_at_owned(fd, buffer, offset).await?;
+        buffer = returned_buffer;  // Reuse the same buffer efficiently!
+        
+        // Can do more operations immediately
+        let (bytes2, buffer2) = ring.write_at_owned(fd2, buffer, offset2, bytes).await?;
+        buffer = buffer2;
+    }
+    Ok(())
+}
+```
+
+**This complexity is why OwnedBuffer is not just recommended but REQUIRED for any real application.**
+
+#### ❌ **PinnedBuffer Methods (Educational Only - Do Not Use)**
+
+> **Warning**: These methods exist only to show the API design that doesn't work. Use `OwnedBuffer` instead.
+
+| Method | Description | ⚠️ Reality Check |
 | :--- | :--- | :--- |
-| `PinnedBuffer::with_capacity(size)` | Creates a new zero-initialized, pinned buffer. | `let mut p_buf = PinnedBuffer::with_capacity(1024);` |
-| `PinnedBuffer::from_slice(data)` | Creates a new pinned buffer by copying data from a slice. | `let mut p_buf = PinnedBuffer::from_slice(b"data");` |
-| `as_mut_slice()` | Returns a `Pin<&mut [u8]>`, which is required by the advanced `Ring` methods. | `let pinned_slice = p_buf.as_mut_slice();` |
-| `as_slice()` | Returns a read-only `&[u8]` slice of the buffer's contents. | `println!("{:?}", p_buf.as_slice());` |
-| `len()` | Returns the length of the buffer. | `assert_eq!(p_buf.len(), 1024);` |
+| `PinnedBuffer::with_capacity(size)` | Creates a new zero-initialized, pinned buffer. | **Must create new buffer for every operation** - cannot reuse |
+| `PinnedBuffer::from_slice(data)` | Creates a new pinned buffer by copying data from a slice. | **Defeats zero-copy goals** - copies data twice |
+| `as_mut_slice()` | Returns a `Pin<&mut [u8]>` for use with `Ring` methods. | **Cannot be called twice** - borrow checker prevents reuse |
+| `as_slice()` | Returns a read-only `&[u8]` slice of the buffer's contents. | **Only useful after copying data out** - not zero-copy |
+| `len()` | Returns the length of the buffer. | **Only method that actually works** as expected |
 
 ---
 

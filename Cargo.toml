@@ -72,6 +72,14 @@ unstable = []
 # name = "file_copy"
 # path = "examples/file_copy.rs"
 
+# file_copy_advanced.rs - INTENTIONALLY EXCLUDED from builds
+# This example demonstrates fundamental PinnedBuffer API limitations
+# and does not compile on Linux due to lifetime constraints.
+# It exists only for educational purposes to show what doesn't work.
+# [[example]]
+# name = "file_copy_advanced"
+# path = "examples/file_copy_advanced.rs"
+
 [[example]]
 name = "async_demo"
 path = "examples/async_demo.rs"

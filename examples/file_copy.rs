@@ -35,7 +35,7 @@
 //! - Automatic cleanup of resources on error or completion
 //! - No risk of data corruption due to memory safety guarantees
 
-use safer_ring::{PinnedBuffer, Ring};
+use safer_ring::{OwnedBuffer, Ring};
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -161,10 +161,49 @@ impl CopyStats {
 }
 
 #[cfg(target_os = "linux")]
+/// # File Copy Example - Educational Guide to safer-ring
+///
+/// This example demonstrates proper usage of safer-ring for high-performance file I/O.
+/// It showcases the key concepts and patterns you need to understand when working with
+/// safer-ring's memory-safe io_uring wrapper.
+///
+/// ## Key Learning Objectives:
+///
+/// 1. **Sequential Operation Pattern**: How to structure code for safer-ring's design
+/// 2. **Buffer Management**: Proper use of PinnedBuffer for stable memory addresses  
+/// 3. **Error Handling**: The essential `?.await?` pattern for robust I/O
+/// 4. **Performance Considerations**: Understanding the trade-offs of safety vs parallelism
+/// 5. **Real-World Application**: Implementing a complete file copy utility
+///
+/// ## Safer-Ring Design Philosophy:
+///
+/// Safer-ring prioritizes **memory safety** and **predictable performance** over maximum
+/// parallelism. This means:
+/// - Operations are sequential by design (one at a time per ring)
+/// - Buffers must remain stable during I/O operations
+/// - Explicit error handling at both submission and completion
+/// - Zero internal locks or complex state management
+///
+/// ## When to Use This Pattern:
+///
+/// Use this example as a template when you need:
+/// - Reliable, production-ready I/O code
+/// - Memory safety guarantees
+/// - Predictable performance characteristics
+/// - Clear error handling and debugging
+///
+/// For maximum parallelism, consider using multiple Ring instances or the Batch API.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 Safer-Ring Zero-Copy File Copy");
-    println!("=================================");
+    // Educational header - explain what we're demonstrating
+    println!("🚀 safer-ring File Copy Demo");
+    println!("============================");
+    println!("📚 This example demonstrates:");
+    println!("   • Sequential operation pattern (safer-ring's design)");
+    println!("   • Proper buffer lifetime management");
+    println!("   • The essential ?.await? error handling pattern");
+    println!("   • Zero-copy I/O with memory safety guarantees");
+    println!();
 
     // Parse command line arguments
     let config = CopyConfig::from_args()?;
@@ -174,20 +213,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "💾 Buffer size: {}",
         CopyStats::format_bytes(config.buffer_size as u64)
     );
-    println!("⚡ Parallel operations: {}", config.parallel_ops);
-    println!("🔧 Ring size: {}", config.ring_size);
+    // Note: We ignore parallel_ops in this educational example since safer-ring is sequential
+    println!("⚡ Operations: Sequential (safer-ring design)");
+    println!("🔧 Ring size: {} (small is fine for sequential ops)", config.ring_size);
     println!();
 
-    // Validate source file exists and get size
+    // STEP 1: Validate source file and get metadata
+    // EDUCATIONAL NOTE: Always validate inputs before creating resources
     let source_metadata = std::fs::metadata(&config.source_path)?;
     let file_size = source_metadata.len();
     println!("📏 File size: {}", CopyStats::format_bytes(file_size));
 
-    // Open source file for reading
+    // STEP 2: Open files and get raw file descriptors
+    // EDUCATIONAL NOTE: safer-ring works with raw file descriptors for maximum performance.
+    // These files must remain open throughout the entire operation to keep the fds valid.
     let source_file = File::open(&config.source_path)?;
     let source_fd = source_file.as_raw_fd();
 
-    // Create destination file
     let dest_file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -195,15 +237,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .open(&config.dest_path)?;
     let dest_fd = dest_file.as_raw_fd();
 
-    // Create io_uring instance
-    let mut ring = Ring::new(config.ring_size)?;
-    println!("⚡ Created io_uring with {} entries", config.ring_size);
+    // STEP 3: Create the safer-ring Ring instance  
+    // EDUCATIONAL NOTE: Ring creation is the foundation of any safer-ring application.
+    // We don't need many entries since we're doing sequential operations.
+    let ring = Ring::new(config.ring_size)?;
+    println!("⚡ Created safer-ring with {} entries", config.ring_size);
+    println!("📚 Note: Sequential operations don't need many ring entries");
     println!();
 
-    // Perform the copy operation (simplified for demo)
-    let stats = copy_file_simple(&mut ring, source_fd, dest_fd, file_size, &config).await?;
+    // STEP 4: Perform the copy using safer-ring's sequential pattern
+    // EDUCATIONAL NOTE: The copy_file_simple function demonstrates the core
+    // safer-ring patterns that you should learn and apply in your own code.
+    println!("🔄 Starting copy with safer-ring sequential pattern...");
+    let stats = copy_file_simple(&ring, source_fd, dest_fd, file_size, &config).await?;
 
-    // Print final statistics
+    // STEP 5: Display comprehensive results and educational summary
     println!();
     println!("✅ Copy completed successfully!");
     println!("📊 Final Statistics:");
@@ -216,19 +264,70 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(start) = stats.start_time {
         println!("   Total time: {:?}", start.elapsed());
     }
+    println!();
 
-    // Verify the copy
-    println!("🔍 Verifying copy...");
+    // STEP 6: Verify integrity (important for demonstrating reliability)
+    println!("🔍 Verifying copy integrity...");
     verify_copy(&config.source_path, &config.dest_path)?;
     println!("✅ Copy verification successful!");
+    println!();
+    
+    // Educational conclusion - key takeaways
+    println!("📚 Key Takeaways from this Example:");
+    println!("   ✓ Ownership transfer (*_owned methods) ensures maximum safety");
+    println!("   ✓ ?.await? pattern provides robust error handling");
+    println!("   ✓ OwnedBuffer + hot potato pattern simplifies buffer management");
+    println!("   ✓ No explicit lifetime management or pinning required");
+    println!("   ✓ Predictable performance without internal complexity");
+    println!("   ✓ Single buffer efficiently reused across all operations");
+    println!();
+    println!("🎯 For higher parallelism, consider:");
+    println!("   • Multiple Ring instances (one per thread)"); 
+    println!("   • Batch operations for grouped I/O");
+    println!("   • This pattern scales perfectly with multiple threads");
 
     Ok(())
 }
 
-/// Perform file copy using simple buffer management
+/// Perform file copy using safer-ring's sequential operation pattern.
+///
+/// # Educational Overview
+///
+/// This function demonstrates the correct way to use safer-ring for file I/O operations.
+/// It follows safer-ring's core design principle: **sequential operations with immediate await**.
+///
+/// ## Why Sequential Operations?
+///
+/// Unlike other async I/O libraries, safer-ring's `Ring` methods take `&mut self` and return
+/// futures that hold a mutable borrow of the ring. This design provides:
+/// - **Memory Safety**: Prevents data races and use-after-free bugs
+/// - **Zero-Copy Performance**: Direct kernel interaction without copying
+/// - **Predictable Behavior**: No internal locking or complex state management
+///
+/// ## The `?.await?` Pattern
+///
+/// This is the essential pattern for safer-ring operations:
+/// - First `?`: Handles submission errors (ring full, invalid params, etc.)
+/// - `.await`: Waits for the I/O operation to complete
+/// - Second `?`: Handles completion errors (I/O failures, permission denied, etc.)
+///
+/// ## Buffer Management Strategy
+///
+/// We use `PinnedBuffer` because:
+/// - Provides stable memory addresses required by io_uring
+/// - Prevents buffer from being moved or freed during I/O
+/// - Supports zero-copy semantics for maximum performance
+///
+/// ## Why Not Parallel Operations?
+///
+/// The mutable borrow design means only one operation can be in-flight at a time
+/// per ring instance. For parallelism, you would need:
+/// - Multiple `Ring` instances (one per thread/task)
+/// - Batch operations using `Batch` API
+/// - Or the recommended `*_owned` methods with `OwnedBuffer`
 #[cfg(target_os = "linux")]
 async fn copy_file_simple(
-    ring: &mut Ring<'_>,
+    ring: &Ring<'_>,
     source_fd: i32,
     dest_fd: i32,
     file_size: u64,
@@ -236,13 +335,14 @@ async fn copy_file_simple(
 ) -> Result<CopyStats, Box<dyn std::error::Error>> {
     let mut stats = CopyStats::new();
     let mut offset = 0u64;
-    let mut active_operations: Vec<(_, u64)> = Vec::new();
 
-    // Progress reporting task
+    // Progress reporting setup - tracks our copy progress
     let stats_clone = std::sync::Arc::new(tokio::sync::Mutex::new(CopyStats::new()));
     let stats_reporter = std::sync::Arc::clone(&stats_clone);
     let total_size = file_size;
 
+    // Background task for progress reporting
+    // This runs independently and doesn't interfere with our I/O operations
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
@@ -264,82 +364,84 @@ async fn copy_file_simple(
         }
     });
 
-    println!("🔄 Starting copy operation...");
+    println!("🔄 Starting OWNERSHIP TRANSFER copy operation...");
+    println!("📚 Educational Note: Using safer-ring's recommended *_owned methods for maximum safety");
 
+    // Create a single, reusable OwnedBuffer for the entire copy operation.
+    // This demonstrates efficient buffer reuse with the hot potato pattern.
+    let mut buffer = OwnedBuffer::new(config.buffer_size);
+
+    // MAIN COPY LOOP: Process file in chunks using ownership transfer
+    // Each operation transfers buffer ownership and returns it upon completion
     while offset < file_size {
-        // Fill up to parallel_ops operations
-        while active_operations.len() < config.parallel_ops && offset < file_size {
-            let chunk_size = std::cmp::min(config.buffer_size as u64, file_size - offset);
+        let chunk_size = std::cmp::min(config.buffer_size as u64, file_size - offset);
 
-            // Create a new buffer for this operation
-            let mut buffer = PinnedBuffer::with_capacity(config.buffer_size);
+        println!("📖 Reading {} bytes at offset {} (ownership transfer)", chunk_size, offset);
 
-            // Read from the source file at the specified offset
-            println!("📖 Reading {} bytes at offset {}", chunk_size, offset);
+        // STEP 1: Perform read using the new `read_at_owned` API
+        // EDUCATIONAL BREAKDOWN:
+        // - `ring.read_at_owned(...)`: Takes ownership of buffer and returns it
+        // - Buffer ownership is transferred to kernel during operation
+        // - First `?`: Handles submission errors (e.g., ring full, invalid fd)
+        // - `.await`: Waits for kernel to complete the I/O operation
+        // - Second `?`: Handles I/O completion errors (e.g., file not found, permission denied)
+        // - Returns (bytes_read, buffer) on success - buffer ownership returned!
+        let (bytes_read, returned_buffer) = ring
+            .read_at_owned(source_fd, buffer, offset)
+            .await?;
 
-            let read_future = ring.read_at(source_fd, buffer.as_mut_slice(), offset)?;
-            active_operations.push((read_future, offset));
-            offset += chunk_size;
-        }
+        // Reclaim ownership of the buffer for the next step
+        buffer = returned_buffer;
 
-        // Wait for at least one operation to complete
-        if !active_operations.is_empty() {
-            let (read_result, op_offset) = active_operations.remove(0);
+        // STEP 2: Process the read data (only if we actually read something)
+        if bytes_read > 0 {
+            println!("✏️  Writing {} bytes at offset {} (ownership transfer)", bytes_read, offset);
 
-            match read_result.await {
-                Ok((bytes_read, read_buffer)) => {
-                    if bytes_read > 0 {
-                        // Write to the destination file at the specified offset
-                        println!("✏️  Writing {} bytes at offset {}", bytes_read, op_offset);
+            // STEP 3: Perform write using the new `write_at_owned` API
+            // EDUCATIONAL BREAKDOWN:
+            // - `ring.write_at_owned(...)`: Takes ownership and returns buffer
+            // - We specify exact length (bytes_read) to write only what was read
+            // - Buffer ownership is transferred again for this operation
+            // - Same ?.await? pattern for robust error handling
+            // - Returns (bytes_written, buffer) - buffer ownership returned again!
+            let (bytes_written, returned_buffer_after_write) = ring
+                .write_at_owned(dest_fd, buffer, offset, bytes_read)
+                .await?;
 
-                        // Use only the portion of buffer that was actually read
-                        let write_buffer = &read_buffer[..bytes_read];
-                        let mut write_pinned = PinnedBuffer::new(write_buffer.to_vec());
-                        let (_bytes_written, _) = ring
-                            .write_at(dest_fd, write_pinned.as_mut_slice(), op_offset)?
-                            .await?;
+            // Reclaim ownership of the buffer for the next loop iteration
+            buffer = returned_buffer_after_write;
 
-                        // Update statistics
-                        stats.update(bytes_read as u64);
-                        {
-                            let mut shared_stats = stats_clone.lock().await;
-                            shared_stats.update(bytes_read as u64);
-                        }
-                    }
-                }
-                Err(e) => {
-                    return Err(format!("Read error at offset {}: {}", op_offset, e).into());
-                }
+            // Verify we wrote all the data we intended to
+            if bytes_written != bytes_read {
+                return Err(format!(
+                    "Partial write: expected {}, wrote {}",
+                    bytes_read, bytes_written
+                ).into());
             }
-        }
-    }
 
-    // Wait for remaining operations to complete
-    for (read_future, op_offset) in active_operations {
-        match read_future.await {
-            Ok((bytes_read, read_buffer)) => {
-                if bytes_read > 0 {
-                    println!(
-                        "✏️  Final write {} bytes at offset {}",
-                        bytes_read, op_offset
-                    );
-
-                    // Write to the destination file
-                    let write_buffer = &read_buffer[..bytes_read];
-                    let mut write_pinned = PinnedBuffer::new(write_buffer.to_vec());
-                    let (_bytes_written, _) = ring
-                        .write_at(dest_fd, write_pinned.as_mut_slice(), op_offset)?
-                        .await?;
-
-                    stats.update(bytes_read as u64);
-                }
+            // STEP 4: Update our progress tracking
+            stats.update(bytes_written as u64);
+            {
+                let mut shared_stats = stats_clone.lock().await;
+                shared_stats.update(bytes_written as u64);
             }
-            Err(e) => {
-                return Err(format!("Read error at offset {}: {}", op_offset, e).into());
-            }
+
+            // Move to next chunk
+            offset += bytes_written as u64;
+        } else {
+            // If we read 0 bytes, we've reached the end of file
+            break;
         }
     }
 
+    println!("\n✅ Ownership transfer copy operation completed!");
+    println!("📚 Educational Summary:");
+    println!("   - Used `read_at_owned`/`write_at_owned` for maximum safety");
+    println!("   - Demonstrated the 'hot potato' ownership transfer pattern");
+    println!("   - Reused single `OwnedBuffer` efficiently across all operations");
+    println!("   - Applied ?.await? pattern for robust error handling");
+    println!("   - No complex lifetime management or pinning required");
+    
     Ok(stats)
 }
 

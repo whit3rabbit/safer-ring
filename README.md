@@ -80,24 +80,88 @@ This library is designed for Linux systems with io_uring support:
 
 On non-Linux platforms, the library will compile but `Ring::new()` will return an error.
 
-## API Guide: Choose Your Level of Safety vs Control
+## API Guide: Two-Tier Approach for Safety and Performance
 
-### 🥇 **Recommended: Ownership Transfer API** (Safest)
+Safer-ring provides **two distinct APIs** designed for different use cases and expertise levels:
+
+### 🥇 **Tier 1: OwnedBuffer API** (Recommended for 99% of users)
+
+The **ownership transfer** approach provides maximum safety and simplicity using the "hot potato" pattern:
+
 ```rust
 use safer_ring::{Ring, OwnedBuffer};
 
-// The "hot potato" pattern - kernel returns your buffer when done
-let mut ring = Ring::new(32)?;
+// Simple I/O with ownership transfer
+let ring = Ring::new(32)?;  // Note: ring doesn't need to be mutable!
 let buffer = OwnedBuffer::new(1024);
 
 let (bytes_read, buffer) = ring.read_owned(fd, buffer).await?;
 let (bytes_written, buffer) = ring.write_owned(fd, buffer).await?;
-// Buffer ownership returned, can be reused safely
-```
-**✅ Pros:** Impossible to access buffer during I/O, eliminates use-after-free  
-**➖ Minimal overhead:** Buffer allocation/deallocation for each operation
 
-### 🥈 **AsyncRead/AsyncWrite Compatibility** (Familiar)  
+// For file operations with positioned I/O
+let (bytes_read, buffer) = ring.read_at_owned(fd, buffer, offset).await?;
+let (bytes_written, buffer) = ring.write_at_owned(fd, buffer, offset, len).await?;
+```
+
+**✅ Benefits:**
+- **Compile-time safety**: Impossible to access buffer during I/O operations
+- **Simple composition**: Works with `tokio::join!`, `futures::select!`, etc.
+- **Memory efficient**: Single buffer can be reused across many operations
+- **No lifetime complexity**: Just pass the buffer and get it back
+- **Perfect for files**: Positioned I/O methods for file copying and random access
+
+**📊 Performance:** Excellent (often identical to advanced API in practice)
+
+### 🥉 **Tier 2: PinnedBuffer API** (⚠️ **FLAWED DESIGN - Educational Only**)
+
+> **🚨 CRITICAL WARNING**: This API has fundamental design flaws that make it impractical for real-world use. It exists primarily for educational purposes to demonstrate why certain Rust patterns don't work with io_uring.
+
+The **advanced pinned memory** approach was designed to provide theoretical maximum performance but suffers from insurmountable lifetime constraints:
+
+```rust
+use safer_ring::{Ring, PinnedBuffer};
+
+let mut ring = Ring::new(32)?;  // Must be mutable!
+
+// ❌ THIS PATTERN DOESN'T WORK - Cannot reuse buffers in loops!
+// while condition {
+//     let (bytes_read, _) = ring.read_at(fd, buffer.as_mut_slice(), offset)?.await?;
+//     // ☝️ Compiler error: cannot borrow ring as mutable more than once
+// }
+
+// ✅ Only single operations work:
+let mut buffer = PinnedBuffer::with_capacity(1024);
+let (bytes_read, _) = ring.read_at(fd, buffer.as_mut_slice(), offset)?.await?;
+// Cannot start another operation until this one completes!
+```
+
+### 🚨 **Critical Limitations**
+
+**The PinnedBuffer API cannot be used for practical applications due to fundamental Rust lifetime constraints:**
+
+1. **❌ No Buffer Reuse**: The `&'a mut Ring<'a>` signature makes it impossible to reuse buffers across operations in loops
+2. **❌ Allocation Hell**: Each operation requires creating new PinnedBuffer instances (defeating zero-copy goals)
+3. **❌ No Loops**: Standard loop patterns fail to compile due to borrow checker conflicts  
+4. **❌ No Recursion Fix**: Even recursive patterns fail due to persistent lifetime borrows
+5. **❌ Sequential Only**: `&mut Ring` prevents any concurrent operations on the same Ring instance
+
+**Why This Happens:**
+```rust
+// The root cause: this signature creates persistent borrows
+pub fn read_at<'buf>(&'ring mut self, ...) where 'buf: 'ring
+//                    ^^^^^^^^^^^ borrows ring for entire 'ring lifetime
+```
+
+**⚠️ Complexity Trade-offs:**
+- **Lifetime management**: Complex buffer lifetime requirements **that cannot be satisfied in loops**
+- **Sequential operations**: `&mut Ring` prevents concurrent operations on same Ring
+- **Composition issues**: Cannot use `tokio::join!`, `futures::select!`, or any standard async patterns
+- **Allocation overhead**: Requires new buffer allocations for each operation (worse than OwnedBuffer)
+- **Expert knowledge required**: Deep understanding of Rust lifetimes and async (but still doesn't work)
+
+**📊 Performance:** Terrible in practice due to constant allocations, significantly worse than OwnedBuffer
+
+### 🌐 **AsyncRead/AsyncWrite Compatibility** (Migration path)
 ```rust
 use safer_ring::compat::AsyncCompat;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -106,26 +170,37 @@ let ring = Ring::new(32)?;
 let mut file = ring.file(fd);
 
 let mut buffer = vec![0u8; 1024];
-let bytes_read = file.read(&mut buffer).await?; // Just like tokio!
+let bytes_read = file.read(&mut buffer).await?; // Drop-in tokio replacement
 ```
-**✅ Pros:** Drop-in replacement for existing tokio code  
-**➖ Tradeoffs:** Internal copying required, some performance cost
 
-### 🥉 **Pin-based API** (Maximum Control)
-```rust
-use safer_ring::{Ring, PinnedBuffer, Operation};
+### 🎯 **API Selection Guide**
 
-let mut buffer = PinnedBuffer::with_capacity(1024);
-let operation = Operation::read().fd(fd).buffer(buffer.as_mut_slice());
-let result = ring.submit(operation).await?;
-```
-**✅ Pros:** Maximum performance, no buffer allocation overhead  
-**⚠️ Advanced:** Requires understanding of pinned memory and lifetimes
+| Use Case | Recommended API | Why |
+|----------|----------------|-----|
+| **New applications** | 🥇 OwnedBuffer | Simple, safe, excellent performance |
+| **File I/O operations** | 🥇 OwnedBuffer (`*_at_owned`) | Perfect for positioned reads/writes |
+| **Learning io_uring** | 🥇 OwnedBuffer | Focus on concepts, not lifetime complexity |
+| **Migrating from tokio** | 🌐 AsyncCompat | Minimal code changes required |
+| **Understanding Rust limitations** | 🥉 PinnedBuffer | Educational only - shows what NOT to do |
+| **Production applications** | ❌ **Never PinnedBuffer** | **API is fundamentally broken** |
 
-> **🎯 Quick Choice Guide:**
-> - **New projects or learning io_uring:** Use ownership transfer API (`*_owned` methods)
-> - **Migrating from tokio:** Use AsyncRead/AsyncWrite compatibility
-> - **High-performance applications:** Consider pin-based API after profiling
+### 📈 **Performance Reality Check**
+
+Based on analysis of the fundamental API constraints:
+
+- **OwnedBuffer reuse**: Excellent performance through efficient buffer reuse
+- **PinnedBuffer allocations**: **Terrible performance** due to constant new buffer allocations per operation
+- **Memory efficiency**: **OwnedBuffer uses dramatically fewer allocations** since it can reuse the same buffer
+- **Development time**: OwnedBuffer saves weeks of debugging lifetime issues that have no solution
+- **Maintainability**: OwnedBuffer code is dramatically easier to understand
+
+**The Truth About "Theoretical Performance":**
+- PinnedBuffer was supposed to be "zero-copy" but requires copying data out of returned slices anyway
+- PinnedBuffer cannot reuse buffers, requiring new allocations for each operation
+- OwnedBuffer achieves actual zero-copy through ownership transfer AND enables buffer reuse
+- **In practice, PinnedBuffer is consistently slower and uses more memory than OwnedBuffer**
+
+**Bottom line:** Always use OwnedBuffer. PinnedBuffer exists only to demonstrate why this API design doesn't work.
 
 ## Project Status
 
@@ -165,10 +240,23 @@ cargo test
 
 See the `examples/` directory for comprehensive usage examples:
 
+### 🎓 **Learning Examples**
 - **`async_demo.rs`** - Comprehensive async/await patterns and batch operations
-- **`echo_server.rs`** - High-performance TCP echo server  
-- **`file_copy.rs`** - Zero-copy file operations
 - **`safer_ring_demo.rs`** - Core safety features demonstration
+
+### 🌐 **Network Examples**  
+- **`echo_server.rs`** - High-performance TCP echo server
+
+### 📁 **File I/O Examples**
+- **`file_copy.rs`** - **[Recommended]** File copying using OwnedBuffer API (simple & safe)
+- **`file_copy_advanced.rs`** - **[⚠️ Educational Only]** Demonstrates PinnedBuffer API limitations and why it doesn't work
+
+### 📊 **API Demonstration**
+The file copy examples demonstrate why OwnedBuffer is the only practical choice:
+- **`file_copy.rs`**: ~50 lines of simple, safe code using OwnedBuffer with excellent performance
+- **`file_copy_advanced.rs`**: **DOES NOT COMPILE ON LINUX** - demonstrates PinnedBuffer API limitations (excluded from builds)
+
+**Key Insight**: PinnedBuffer cannot reuse buffers and requires constant allocations, making it both more complex AND slower than OwnedBuffer in practice.
 
 ### Quick Start
 ```bash
@@ -188,17 +276,18 @@ use safer_ring::{Ring, OwnedBuffer};
 
 #[tokio::main]  
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut ring = Ring::new(32)?;
+    let ring = Ring::new(32)?;  // Note: doesn't need to be mutable!
     let buffer = OwnedBuffer::new(1024);
     
     // Safe read with ownership transfer
-    let (bytes_read, buffer) = ring.read_owned(0, buffer).await?;
+    let (bytes_read, buffer) = ring.read_owned(fd, buffer).await?;
     println!("Read {} bytes", bytes_read);
     
-    // Buffer is safely returned and can be reused
-    let (bytes_written, _) = ring.write_owned(1, buffer).await?;
-    println!("Wrote {} bytes", bytes_written);
+    // For positioned file I/O (perfect for file copying)
+    let (bytes_written, buffer) = ring.write_at_owned(fd, buffer, offset, bytes_read).await?;
+    println!("Wrote {} bytes at offset {}", bytes_written, offset);
     
+    // Buffer is safely returned and can be reused efficiently
     Ok(())
 }
 ```

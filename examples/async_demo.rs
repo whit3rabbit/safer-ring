@@ -456,7 +456,7 @@ async fn run_timeout_demo(
 /// Demonstrate buffer pool integration with async operations
 #[cfg(target_os = "linux")]
 async fn run_buffer_pool_async_demo(
-    ring: &Ring<'_>,
+    _ring: &Ring<'_>,
     config: &AsyncDemoConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🏊 Buffer Pool Async Integration:");

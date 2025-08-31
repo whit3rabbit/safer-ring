@@ -21,7 +21,7 @@ async fn test_batch_lifetime_constraint_fix() {
 
     #[cfg(target_os = "linux")]
     {
-        let mut ring = match Ring::new(32) {
+        let ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
                 println!(
@@ -77,7 +77,7 @@ async fn test_improved_operation_ergonomics() {
 
     #[cfg(target_os = "linux")]
     {
-        let mut ring = match Ring::new(32) {
+        let ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
                 println!(
