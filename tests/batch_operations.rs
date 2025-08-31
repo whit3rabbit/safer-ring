@@ -57,10 +57,7 @@ async fn test_single_operation_batch() {
     let mut ring = match Ring::new(32) {
         Ok(r) => r,
         Err(e) => {
-            println!(
-                "Could not create ring (io_uring may not be available): {}",
-                e
-            );
+            println!("Could not create ring (io_uring may not be available): {e}");
             return;
         }
     };
@@ -68,7 +65,7 @@ async fn test_single_operation_batch() {
 
     // Create a simple read operation
     if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buffer.as_mut_slice())) {
-        println!("Could not add operation to batch: {}", e);
+        println!("Could not add operation to batch: {e}");
         return;
     }
 
@@ -76,7 +73,7 @@ async fn test_single_operation_batch() {
     let mut batch_future = match ring.submit_batch_standalone(batch) {
         Ok(f) => f,
         Err(e) => {
-            println!("Could not submit batch: {}", e);
+            println!("Could not submit batch: {e}");
             return;
         }
     };
@@ -117,29 +114,26 @@ async fn test_multiple_operations_batch() {
     let mut ring = match Ring::new(32) {
         Ok(r) => r,
         Err(e) => {
-            println!(
-                "Could not create ring (io_uring may not be available): {}",
-                e
-            );
+            println!("Could not create ring (io_uring may not be available): {e}");
             return;
         }
     };
     let mut batch = Batch::new();
 
     if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice())) {
-        println!("Could not add first operation to batch: {}", e);
+        println!("Could not add first operation to batch: {e}");
         return;
     }
 
     if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buffer2.as_mut_slice())) {
-        println!("Could not add second operation to batch: {}", e);
+        println!("Could not add second operation to batch: {e}");
         return;
     }
 
     let mut batch_future = match ring.submit_batch_standalone(batch) {
         Ok(f) => f,
         Err(e) => {
-            println!("Could not submit batch: {}", e);
+            println!("Could not submit batch: {e}");
             return;
         }
     };
@@ -300,10 +294,7 @@ async fn test_large_batch() {
     let mut ring = match Ring::new(256) {
         Ok(r) => r,
         Err(e) => {
-            println!(
-                "Could not create ring (io_uring may not be available): {}",
-                e
-            );
+            println!("Could not create ring (io_uring may not be available): {e}");
             return;
         }
     };
@@ -312,17 +303,17 @@ async fn test_large_batch() {
 
     // Create and add operations
     if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buf1.as_mut_slice())) {
-        println!("Could not add first operation: {}", e);
+        println!("Could not add first operation: {e}");
         return;
     }
 
     if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buf2.as_mut_slice())) {
-        println!("Could not add second operation: {}", e);
+        println!("Could not add second operation: {e}");
         return;
     }
 
     if let Err(e) = batch.add_operation(Operation::read().fd(0).buffer(buf3.as_mut_slice())) {
-        println!("Could not add third operation: {}", e);
+        println!("Could not add third operation: {e}");
         return;
     }
 
@@ -331,7 +322,7 @@ async fn test_large_batch() {
     let mut batch_future = match ring.submit_batch_standalone(batch) {
         Ok(f) => f,
         Err(e) => {
-            println!("Could not submit large batch: {}", e);
+            println!("Could not submit large batch: {e}");
             return;
         }
     };

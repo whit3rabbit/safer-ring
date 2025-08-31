@@ -38,7 +38,7 @@ impl ServerConfig {
     pub fn host_port(&self) -> (&str, &str) {
         let parts: Vec<&str> = self.bind_address.split(':').collect();
         (
-            parts.get(0).unwrap_or(&"localhost"),
+            parts.first().unwrap_or(&"localhost"),
             parts.get(1).unwrap_or(&"8080"),
         )
     }

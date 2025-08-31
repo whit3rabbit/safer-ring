@@ -268,10 +268,7 @@ async fn test_comprehensive_integration_stress() -> Result<(), Box<dyn std::erro
         }
 
         let final_orphan_count = ring.orphan_count();
-        println!(
-            "✓ Ring operations: orphan count {} -> {}",
-            initial_orphan_count, final_orphan_count
-        );
+        println!("✓ Ring operations: orphan count {initial_orphan_count} -> {final_orphan_count}");
     } else {
         println!("✓ Ring gracefully handled on non-Linux");
     }
@@ -348,9 +345,9 @@ fn test_safety_overhead_benchmark() {
     let runtime_time = start.elapsed();
 
     println!("Safety feature overhead results:");
-    println!("  OwnedBuffer creation: {:?} (10k operations)", buffer_time);
-    println!("  OrphanTracker ops: {:?} (10k operations)", tracker_time);
-    println!("  Runtime detection: {:?} (100 operations)", runtime_time);
+    println!("  OwnedBuffer creation: {buffer_time:?} (10k operations)");
+    println!("  OrphanTracker ops: {tracker_time:?} (10k operations)");
+    println!("  Runtime detection: {runtime_time:?} (100 operations)");
 
     // Verify reasonable overhead (these are loose bounds)
     assert!(

@@ -14,8 +14,8 @@ use safer_ring::{
 };
 
 // AsyncReadAdapter and AsyncWriteAdapter are internal types, not part of public API
-use std::sync::{Arc, Mutex};
 use std::os::unix::io::AsRawFd;
+use std::sync::{Arc, Mutex};
 
 mod ownership_transfer_tests {
     use super::*;
@@ -83,10 +83,7 @@ mod ownership_transfer_tests {
         }
 
         // The future exists, which means the API is correctly implemented
-        println!(
-            "Hot potato API correctly implemented with generation {}",
-            original_generation
-        );
+        println!("Hot potato API correctly implemented with generation {original_generation}");
 
         Ok(())
     }
@@ -182,7 +179,7 @@ mod cancellation_safety_tests {
             tracker.cleanup_all_orphans()
         };
 
-        println!("Cleaned up {} orphaned operations", cleaned);
+        println!("Cleaned up {cleaned} orphaned operations");
     }
 
     #[tokio::test]
@@ -210,17 +207,17 @@ mod runtime_detection_tests {
         let env_info = get_environment_info();
 
         // These should always return valid information
-        println!("Environment info: {:?}", env_info);
+        println!("Environment info: {env_info:?}");
 
         // Test availability check
         let available = is_io_uring_available();
-        println!("io_uring available: {}", available);
+        println!("io_uring available: {available}");
 
         // On Linux, should detect properly; on other platforms should be false
         #[cfg(target_os = "linux")]
         {
             // May be true or false depending on kernel version
-            println!("Linux system: io_uring availability = {}", available);
+            println!("Linux system: io_uring availability = {available}");
         }
 
         #[cfg(not(target_os = "linux"))]
@@ -264,7 +261,7 @@ mod runtime_detection_tests {
         let ring_result = Ring::new(32);
         match ring_result {
             Ok(_ring) => println!("Ring created successfully"),
-            Err(e) => println!("Ring creation failed (expected fallback): {}", e),
+            Err(e) => println!("Ring creation failed (expected fallback): {e}"),
         }
     }
 }
@@ -288,7 +285,7 @@ mod registry_tests {
         let _ring = match Ring::new(32) {
             Ok(ring) => ring,
             Err(e) => {
-                println!("Ring creation failed: {}", e);
+                println!("Ring creation failed: {e}");
                 return Ok(());
             }
         };
@@ -306,7 +303,8 @@ mod registry_tests {
 
         // Use Registry for file registration (per API docs)
         let mut registry = Registry::new();
-        let _fixed_files = registry.register_fixed_files(vec![file1.as_raw_fd(), file2.as_raw_fd()])?;
+        let _fixed_files =
+            registry.register_fixed_files(vec![file1.as_raw_fd(), file2.as_raw_fd()])?;
 
         let _buffer = safer_ring::PinnedBuffer::with_capacity(1024);
 
@@ -337,7 +335,7 @@ mod async_adapter_tests {
         let _ring = match Ring::new(32) {
             Ok(ring) => ring,
             Err(e) => {
-                println!("Ring creation failed: {}", e);
+                println!("Ring creation failed: {e}");
                 return Ok(());
             }
         };
@@ -381,7 +379,7 @@ mod async_adapter_tests {
         let _ring = match Ring::new(32) {
             Ok(ring) => ring,
             Err(e) => {
-                println!("Ring creation failed: {}", e);
+                println!("Ring creation failed: {e}");
                 return Ok(());
             }
         };
@@ -417,7 +415,7 @@ mod async_adapter_tests {
         let _ring = match Ring::new(32) {
             Ok(ring) => ring,
             Err(e) => {
-                println!("Ring creation failed: {}", e);
+                println!("Ring creation failed: {e}");
                 return Ok(());
             }
         };
@@ -506,7 +504,7 @@ async fn test_comprehensive_safety_integration() -> Result<(), Box<dyn std::erro
     // Test runtime detection
     let _env_info = get_environment_info();
     let is_available = is_io_uring_available();
-    println!("io_uring available: {}", is_available);
+    println!("io_uring available: {is_available}");
 
     // Test runtime creation with fallback
     let _runtime = Runtime::auto_detect()?;
@@ -519,7 +517,7 @@ async fn test_comprehensive_safety_integration() -> Result<(), Box<dyn std::erro
             assert_eq!(ring.orphan_count(), 0);
         }
         Err(e) => {
-            println!("Ring creation failed (using fallback): {}", e);
+            println!("Ring creation failed (using fallback): {e}");
         }
     }
 

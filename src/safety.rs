@@ -50,7 +50,7 @@ pub type SubmissionId = u64;
 ///
 /// This trait allows SafeOperationFuture to check for completions
 /// without holding a direct reference to the Ring.
-pub trait CompletionChecker {
+pub trait CompletionChecker: Sync {
     /// Try to complete a specific operation by its submission ID.
     ///
     /// Returns:

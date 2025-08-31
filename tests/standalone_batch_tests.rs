@@ -1,6 +1,6 @@
 //! Tests for standalone batch operations that solve the lifetime constraint issues.
 
-use safer_ring::{Ring, OwnedBuffer};
+use safer_ring::{OwnedBuffer, Ring};
 
 /// Test that demonstrates basic ring functionality without complex lifetime issues
 #[tokio::test]
@@ -13,20 +13,17 @@ async fn test_basic_ring_operations() {
 
     #[cfg(target_os = "linux")]
     {
-        let mut ring = match Ring::new(32) {
+        let ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!(
-                    "Could not create ring (io_uring may not be available): {}",
-                    e
-                );
+                println!("Could not create ring (io_uring may not be available): {e}");
                 return;
             }
         };
 
         // Use the recommended owned API which is much simpler for lifetime management
         let buffer = OwnedBuffer::new(512);
-        
+
         // Test a simple operation with timeout to avoid hanging on stdin
         let operation_future = ring.read_owned(0, buffer);
         match tokio::time::timeout(std::time::Duration::from_millis(100), operation_future).await {
@@ -57,13 +54,10 @@ async fn test_ring_buffer_management() {
 
     #[cfg(target_os = "linux")]
     {
-        let mut ring = match Ring::new(32) {
+        let ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!(
-                    "Could not create ring (io_uring may not be available): {}",
-                    e
-                );
+                println!("Could not create ring (io_uring may not be available): {e}");
                 return;
             }
         };
@@ -105,19 +99,19 @@ async fn test_ring_capacity() {
         for capacity in [8, 16, 32, 64] {
             match Ring::new(capacity) {
                 Ok(mut ring) => {
-                    println!("✅ Successfully created ring with capacity {}", capacity);
+                    println!("✅ Successfully created ring with capacity {capacity}");
                     assert!(ring.capacity() > 0);
-                    
+
                     // Test that the ring can handle basic operations
                     let buffer = OwnedBuffer::new(128);
                     let operation = ring.read_owned(0, buffer);
-                    
+
                     // Don't wait for completion, just verify it compiles and starts
                     drop(operation);
                     drop(ring);
                 }
                 Err(e) => {
-                    println!("Could not create ring with capacity {}: {}", capacity, e);
+                    println!("Could not create ring with capacity {capacity}: {e}");
                 }
             }
         }

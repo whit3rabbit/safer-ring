@@ -202,7 +202,7 @@ mod tests {
         #[test]
         fn debug_formatting() {
             let error = SaferRingError::OperationsInFlight { count: 3 };
-            let debug_str = format!("{:?}", error);
+            let debug_str = format!("{error:?}");
 
             assert!(debug_str.contains("OperationsInFlight"));
             assert!(debug_str.contains("count: 3"));

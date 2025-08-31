@@ -5,7 +5,7 @@
 //!
 //! These tests demonstrate significant API design challenges in safer-ring's network operations.
 //! Unlike file I/O operations which have `read_owned` and `write_owned` methods that use the
-//! ownership transfer "hot potato" pattern (see docs/API.md), network operations (`send`, `recv`) 
+//! ownership transfer "hot potato" pattern (see docs/API.md), network operations (`send`, `recv`)
 //! only provide advanced APIs that create complex lifetime conflicts.
 //!
 //! ## The Core Problem
@@ -22,7 +22,7 @@
 //! // This DOESN'T work - multiple mutable borrows
 //! let future1 = ring.send(fd1, buf1)?;  // Borrows ring mutably
 //! let future2 = ring.send(fd2, buf2)?;  // ERROR: ring already borrowed
-//! 
+//!
 //! // This DOESN'T work - borrow across await points
 //! let future = ring.send(fd, buf)?;     // Borrows ring and buf
 //! do_other_work().await;                // Borrow held across await
@@ -94,7 +94,7 @@ async fn test_accept_operation() -> Result<(), Box<dyn std::error::Error + Send 
 
     // Spawn a client to connect to the listener.
     let connect_handle =
-        tokio::spawn(async move { TcpStream::connect(format!("127.0.0.1:{}", port)) });
+        tokio::spawn(async move { TcpStream::connect(format!("127.0.0.1:{port}")) });
 
     // Await the accept operation.
     let client_fd = timeout(Duration::from_secs(5), ring.accept_safe(listener_fd)).await??;
@@ -121,7 +121,7 @@ async fn test_send_operation() -> Result<(), Box<dyn std::error::Error + Send + 
     // FIX: Use Box::leak() to give Ring 'static lifetime, satisfying 'buf: 'ring constraint
     let ring = Ring::new(32)?;
     let ring: &'static mut Ring = Box::leak(Box::new(ring));
-    
+
     // FIX: Also leak the buffer to give it 'static lifetime
     let send_buffer = PinnedBuffer::from_slice(test_data);
     let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
@@ -162,16 +162,17 @@ async fn test_recv_operation() -> Result<(), Box<dyn std::error::Error + Send + 
     // FIX: Use Box::leak() to give Ring 'static lifetime
     let ring = Ring::new(32)?;
     let ring: &'static mut Ring = Box::leak(Box::new(ring));
-    
+
     // FIX: Also leak the buffer to give it 'static lifetime
     let recv_buffer = PinnedBuffer::with_capacity(1024);
     let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
 
-    // RECV OPERATION - Same immediate await pattern required  
+    // RECV OPERATION - Same immediate await pattern required
     // From src/future/io_futures/network_io.rs:246-251:
     // RecvFuture holds &'ring mut Ring and borrows the buffer
     // With Box::leak(), all lifetime constraints are satisfied
-    let (bytes_received, received_slice) = ring.recv(client_fd, recv_buffer.as_mut_slice())?.await?;
+    let (bytes_received, received_slice) =
+        ring.recv(client_fd, recv_buffer.as_mut_slice())?.await?;
     assert_eq!(bytes_received, test_data.len());
     assert_eq!(&received_slice[..bytes_received], test_data);
 
@@ -189,7 +190,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     // Start the client connection in background first
     let client_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(50)).await;
-        let mut client = TcpStream::connect(format!("127.0.0.1:{}", port))?;
+        let mut client = TcpStream::connect(format!("127.0.0.1:{port}"))?;
         let test_data = b"Echo test message";
         client.write_all(test_data)?;
         client.flush()?;
@@ -203,18 +204,19 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     let ring1: &'static Ring = Box::leak(Box::new(ring1));
     let client_fd = ring1.accept_safe(listener_fd).await?;
 
-    // Use a separate ring for recv/send operations  
+    // Use a separate ring for recv/send operations
     let ring2 = Ring::new(32)?;
     let ring2: &'static mut Ring = Box::leak(Box::new(ring2));
-    
+
     // FIX: Leak the recv buffer to give it 'static lifetime
     let recv_buffer = PinnedBuffer::with_capacity(1024);
     let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
-    
-    // Receive data 
-    let (bytes_received, received_slice) = ring2.recv(client_fd, recv_buffer.as_mut_slice())?.await?;
+
+    // Receive data
+    let (bytes_received, received_slice) =
+        ring2.recv(client_fd, recv_buffer.as_mut_slice())?.await?;
     let received_data = received_slice[..bytes_received].to_vec();
-    
+
     // Send echo back - need to use separate Ring to avoid double mutable borrow
     let ring3 = Ring::new(32)?;
     let ring3: &'static mut Ring = Box::leak(Box::new(ring3));
@@ -237,7 +239,8 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_multiple_concurrent_connections(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (listener, port) = create_test_listener()?;
     let listener_fd = listener.as_raw_fd();
     const NUM_CONNECTIONS: usize = 3; // Reduced for simplicity
@@ -247,8 +250,8 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
     for i in 0..NUM_CONNECTIONS {
         client_tasks.push(tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(i as u64 * 30)).await;
-            let mut client = TcpStream::connect(format!("127.0.0.1:{}", port))?;
-            let test_data = format!("Message from client {}", i);
+            let mut client = TcpStream::connect(format!("127.0.0.1:{port}"))?;
+            let test_data = format!("Message from client {i}");
             client.write_all(test_data.as_bytes())?;
             client.flush()?;
             let mut received = vec![0; test_data.len()];
@@ -264,17 +267,19 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
 
     for _ in 0..NUM_CONNECTIONS {
         let client_fd = accept_ring.accept_safe(listener_fd).await?;
-        
+
         // Use separate leaked rings for each connection to avoid borrow conflicts
         let conn_ring_recv = Ring::new(32)?;
         let conn_ring_recv: &'static mut Ring = Box::leak(Box::new(conn_ring_recv));
-        
+
         // FIX: Leak the recv buffer to give it 'static lifetime
         let recv_buffer = PinnedBuffer::with_capacity(1024);
         let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
-        
+
         // Receive data
-        let (bytes_received, received_slice) = conn_ring_recv.recv(client_fd, recv_buffer.as_mut_slice())?.await?;
+        let (bytes_received, received_slice) = conn_ring_recv
+            .recv(client_fd, recv_buffer.as_mut_slice())?
+            .await?;
         let received_data = received_slice[..bytes_received].to_vec();
 
         // Send echo back using separate ring to avoid double mutable borrow
@@ -282,8 +287,10 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
         let conn_ring_send: &'static mut Ring = Box::leak(Box::new(conn_ring_send));
         let send_buffer = PinnedBuffer::from_slice(&received_data);
         let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
-        let (bytes_sent, _) = conn_ring_send.send(client_fd, send_buffer.as_mut_slice())?.await?;
-        
+        let (bytes_sent, _) = conn_ring_send
+            .send(client_fd, send_buffer.as_mut_slice())?
+            .await?;
+
         server_results.push((bytes_received, bytes_sent));
 
         unsafe { libc::close(client_fd) };
@@ -307,7 +314,7 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
     server_results_sorted.sort_by_key(|(r, _)| *r);
 
     for i in 0..NUM_CONNECTIONS {
-        let expected_message = format!("Message from client {}", i);
+        let expected_message = format!("Message from client {i}");
         assert_eq!(client_results[i], expected_message);
         assert_eq!(server_results_sorted[i].0, expected_message.len());
         assert_eq!(server_results_sorted[i].1, expected_message.len());
@@ -318,11 +325,12 @@ async fn test_multiple_concurrent_connections() -> Result<(), Box<dyn std::error
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn test_network_send_error_handling() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_network_send_error_handling() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
     let invalid_fd: RawFd = -1;
     let ring = Ring::new(32)?;
     let ring: &'static mut Ring = Box::leak(Box::new(ring));
-    
+
     // FIX: Leak the buffer to give it 'static lifetime
     let send_buffer = PinnedBuffer::with_capacity(1024);
     let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
@@ -337,11 +345,12 @@ async fn test_network_send_error_handling() -> Result<(), Box<dyn std::error::Er
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn test_network_recv_error_handling() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_network_recv_error_handling() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
     let invalid_fd: RawFd = -1;
     let ring = Ring::new(32)?;
     let ring: &'static mut Ring = Box::leak(Box::new(ring));
-    
+
     // FIX: Leak the buffer to give it 'static lifetime
     let recv_buffer = PinnedBuffer::with_capacity(1024);
     let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
@@ -356,7 +365,8 @@ async fn test_network_recv_error_handling() -> Result<(), Box<dyn std::error::Er
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn test_network_accept_error_handling() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_network_accept_error_handling() -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+{
     let invalid_fd: RawFd = -1;
     let ring = Ring::new(32)?;
     let ring: &'static Ring = Box::leak(Box::new(ring));

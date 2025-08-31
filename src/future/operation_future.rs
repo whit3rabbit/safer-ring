@@ -103,8 +103,7 @@ impl<'ring, 'buf> Future for OperationFuture<'ring, 'buf> {
                 // Error checking completion status
                 self.waker_registry.remove_waker(operation_id);
                 Poll::Ready(Err(io::Error::other(format!(
-                    "Error checking operation completion: {}",
-                    e
+                    "Error checking operation completion: {e}"
                 ))))
             }
         }

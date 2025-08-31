@@ -17,9 +17,9 @@ use {
     echo_server::{ServerConfig, ServerStats},
     safer_ring::{OwnedBuffer, Ring},
     std::net::TcpListener,
-    std::time::Instant,
-    std::sync::Arc,
     std::os::unix::io::AsRawFd,
+    std::sync::Arc,
+    std::time::Instant,
 };
 
 #[cfg(target_os = "linux")]
@@ -76,8 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut stats_guard = stats.lock().await;
             stats_guard.connection_accepted();
         }
-        
-        println!("🔌 New connection: fd {}", client_fd);
+
+        println!("🔌 New connection: fd {client_fd}");
 
         // Spawn a new task for each client. Each task gets its own Ring.
         let stats_clone = Arc::clone(&stats);
@@ -87,7 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client_ring = Ring::new(32).expect("Failed to create ring for client task");
             let start_time = Instant::now();
 
-            let result = handle_client(&mut client_ring, client_fd, buffer_size, &stats_clone).await;
+            let result =
+                handle_client(&mut client_ring, client_fd, buffer_size, &stats_clone).await;
 
             {
                 let mut stats_guard = stats_clone.lock().await;
@@ -97,9 +98,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match result {
                 Ok(bytes) => println!(
                     "✅ Connection {} closed ({} bytes, {:?})",
-                    client_fd, bytes, start_time.elapsed()
+                    client_fd,
+                    bytes,
+                    start_time.elapsed()
                 ),
-                Err(e) => eprintln!("❌ Error on fd {}: {}", client_fd, e),
+                Err(e) => eprintln!("❌ Error on fd {client_fd}: {e}"),
             }
 
             unsafe { libc::close(client_fd) };
@@ -133,21 +136,18 @@ async fn handle_client(
         // Receive data from the client with timeout handling
         let buffer = OwnedBuffer::new(buffer_size);
         let receive_future = ring.read_owned(client_fd, buffer);
-        let receive_result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(30),
-            receive_future,
-        )
-        .await;
+        let receive_result =
+            tokio::time::timeout(tokio::time::Duration::from_secs(30), receive_future).await;
 
         let (bytes_received, buffer_back) = match receive_result {
             Ok(Ok(result)) => result,
             Ok(Err(e)) => {
                 // I/O error
-                return Err(format!("Receive error: {}", e).into());
+                return Err(format!("Receive error: {e}").into());
             }
             Err(_) => {
                 // Timeout
-                println!("⏰ Connection {} timed out", client_fd);
+                println!("⏰ Connection {client_fd} timed out");
                 break;
             }
         };
@@ -179,9 +179,9 @@ async fn handle_client(
                 )
             }
         } else {
-            format!("Buffer not accessible ({} bytes)", bytes_received)
+            format!("Buffer not accessible ({bytes_received} bytes)")
         };
-        println!("📥 fd {}: {}", client_fd, data_preview);
+        println!("📥 fd {client_fd}: {data_preview}");
 
         // Echo the data back to the client
         // Create echo buffer with just the data we received
@@ -190,7 +190,7 @@ async fn handle_client(
         } else {
             return Err("Buffer not accessible for echo".into());
         };
-        
+
         let echo_buffer = OwnedBuffer::from_slice(&echo_data);
         let (bytes_sent, _buffer_returned) = ring.write_owned(client_fd, echo_buffer).await?;
 
@@ -202,13 +202,12 @@ async fn handle_client(
 
         total_bytes_processed += bytes_received as u64;
 
-        println!("📤 fd {}: Echoed {} bytes", client_fd, bytes_sent);
+        println!("📤 fd {client_fd}: Echoed {bytes_sent} bytes");
 
         // Verify we sent all the data
         if bytes_sent != bytes_received {
             eprintln!(
-                "⚠️  Warning: Partial send on fd {} ({}/{} bytes)",
-                client_fd, bytes_sent, bytes_received
+                "⚠️  Warning: Partial send on fd {client_fd} ({bytes_sent}/{bytes_received} bytes)"
             );
         }
     }

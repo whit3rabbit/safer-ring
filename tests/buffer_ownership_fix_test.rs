@@ -5,7 +5,8 @@
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
-async fn test_buffer_ownership_after_completion() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn test_buffer_ownership_after_completion(
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     use safer_ring::{OwnedBuffer, Ring};
     use std::io::Write;
     use std::os::unix::io::FromRawFd;
@@ -50,11 +51,14 @@ async fn test_buffer_ownership_after_completion() -> Result<(), Box<dyn std::err
     } else {
         panic!("Buffer should be user-owned after completion");
     }
-    
+
     // 6. Verify buffer ownership state
-    assert!(returned_buffer.is_user_owned(), "Buffer should be user-owned after completion");
+    assert!(
+        returned_buffer.is_user_owned(),
+        "Buffer should be user-owned after completion"
+    );
     println!("✓ Buffer ownership is correctly transferred back to user");
-    
+
     Ok(())
 }
 

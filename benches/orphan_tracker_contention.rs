@@ -68,7 +68,7 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
             group.bench_with_input(
                 BenchmarkId::new(
                     "submission_id_contention",
-                    format!("{}threads_{}ops", threads, ops_per_thread),
+                    format!("{threads}threads_{ops_per_thread}ops"),
                 ),
                 &(threads, ops_per_thread),
                 |b, &(&threads, &ops_per_thread)| {
@@ -106,7 +106,7 @@ fn bench_multi_threaded_contention(c: &mut Criterion) {
             group.bench_with_input(
                 BenchmarkId::new(
                     "mixed_operations_contention",
-                    format!("{}threads_{}ops", threads, ops_per_thread),
+                    format!("{threads}threads_{ops_per_thread}ops"),
                 ),
                 &(threads, ops_per_thread),
                 |b, &(&threads, &ops_per_thread)| {

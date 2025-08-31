@@ -82,9 +82,9 @@ async fn demo_basic_buffers(
 
     memory_tracker.record_alloc(4096 * 3);
 
-    println!("    Standard allocation: {:?}", standard_time);
-    println!("    Aligned allocation:  {:?}", aligned_time);
-    println!("    NUMA allocation:     {:?}", numa_time);
+    println!("    Standard allocation: {standard_time:?}");
+    println!("    Aligned allocation:  {aligned_time:?}");
+    println!("    NUMA allocation:     {numa_time:?}");
     println!(
         "    Memory used: {} bytes",
         memory_tracker.current_usage() - initial_memory
@@ -131,7 +131,7 @@ async fn demo_buffer_pool(
     );
 
     let speedup = direct_time.as_secs_f64() / pool_time.as_secs_f64();
-    println!("    Speedup: {:.2}x", speedup);
+    println!("    Speedup: {speedup:.2}x");
 
     Ok(())
 }
@@ -154,10 +154,7 @@ async fn demo_numa_allocation(
         }
         let allocation_time = start.elapsed();
 
-        println!(
-            "    NUMA node {}: {:?} for 10 buffers",
-            node, allocation_time
-        );
+        println!("    NUMA node {node}: {allocation_time:?} for 10 buffers");
     }
 
     memory_tracker.record_alloc(4096 * 20);
@@ -200,11 +197,11 @@ async fn demo_batch_operations(
     }
     let batch_time = start.elapsed();
 
-    println!("    Individual setup:  {:?}", individual_time);
-    println!("    Batch operations:  {:?}", batch_time);
+    println!("    Individual setup:  {individual_time:?}");
+    println!("    Batch operations:  {batch_time:?}");
 
     let speedup = individual_time.as_secs_f64() / batch_time.as_secs_f64();
-    println!("    Speedup: {:.2}x", speedup);
+    println!("    Speedup: {speedup:.2}x");
 
     Ok(())
 }
@@ -306,7 +303,7 @@ fn print_performance_summary(registry: &PerfRegistry) {
 
     let all_stats = registry.all_stats();
     for (name, stats) in all_stats {
-        println!("{}:", name);
+        println!("{name}:");
         println!("  Operations: {}", stats.count);
         println!("  Avg time: {:?}", stats.avg_time);
         println!("  Throughput: {:.2} ops/sec", stats.ops_per_sec());
@@ -331,7 +328,7 @@ fn print_performance_summary(registry: &PerfRegistry) {
 
     for (name, stats) in registry.all_stats() {
         if stats.ops_per_sec() < 1000.0 && stats.count > 10 {
-            println!("  - {} has low throughput, consider optimization", name);
+            println!("  - {name} has low throughput, consider optimization");
         }
     }
 

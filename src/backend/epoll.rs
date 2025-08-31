@@ -297,8 +297,7 @@ impl EpollBackend {
 
         let mut completed = Vec::with_capacity(num_events as usize);
 
-        for i in 0..num_events as usize {
-            let event = &events[i];
+        for event in events.iter().take(num_events as usize) {
             let user_data = event.u64;
 
             if let Some(operation) = self.pending_operations.remove(&user_data) {

@@ -227,8 +227,7 @@ impl<'ring> Future for AcceptFuture<'ring> {
             Err(e) => {
                 self.waker_registry.remove_waker(operation_id);
                 Poll::Ready(Err(io::Error::other(format!(
-                    "Error checking accept completion: {}",
-                    e
+                    "Error checking accept completion: {e}"
                 ))))
             }
         }

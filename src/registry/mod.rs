@@ -629,7 +629,7 @@ impl<'ring> Registry<'ring> {
             if fd < 0 {
                 return Err(SaferRingError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    format!("Invalid file descriptor: {}", fd),
+                    format!("Invalid file descriptor: {fd}"),
                 )));
             }
         }

@@ -50,7 +50,7 @@ async fn demonstrate_feature_detection() -> Result<(), Box<dyn std::error::Error
 
     println!("Available features:");
     for feature in detector.available_features() {
-        println!("  ✓ {}", feature);
+        println!("  ✓ {feature}");
     }
 
     // Create optimal configuration based on detected features
@@ -64,7 +64,7 @@ async fn demonstrate_feature_detection() -> Result<(), Box<dyn std::error::Error
     // Try to create a ring with advanced features
     match Ring::with_advanced_config(optimal_config) {
         Ok(_ring) => println!("  ✓ Ring created with advanced features"),
-        Err(e) => println!("  ⚠ Ring creation failed: {}", e),
+        Err(e) => println!("  ⚠ Ring creation failed: {e}"),
     }
 
     println!();
@@ -126,7 +126,7 @@ async fn demonstrate_configuration_options() -> Result<(), Box<dyn std::error::E
             println!("  NUMA aware: {}", auto_config.buffer.numa_aware);
             println!("  Buffer pool size: {}", auto_config.buffer.pool_size);
         }
-        Err(e) => println!("  ⚠ Auto-detection failed: {}", e),
+        Err(e) => println!("  ⚠ Auto-detection failed: {e}"),
     }
 
     println!();
@@ -180,7 +180,7 @@ async fn demonstrate_logging_and_metrics() -> Result<(), Box<dyn std::error::Err
                     metrics.get_count(&operation_type)
                 );
                 if let Some(avg) = metrics.get_average_duration(&operation_type) {
-                    println!("    Average duration: {:?}", avg);
+                    println!("    Average duration: {avg:?}");
                 }
             }
         }
@@ -216,7 +216,7 @@ async fn demonstrate_advanced_buffers() -> Result<(), Box<dyn std::error::Error>
     println!("  Created buffer group with ID 1, 16 buffers of 4KB each");
 
     if let Some(buffer_id) = buffer_group.get_buffer() {
-        println!("  Allocated buffer ID: {}", buffer_id);
+        println!("  Allocated buffer ID: {buffer_id}");
         println!("  Available buffers: {}", buffer_group.available_count());
 
         buffer_group.return_buffer(buffer_id);

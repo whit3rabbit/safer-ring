@@ -56,7 +56,7 @@ async fn demonstrate_runtime_detection() -> Result<(), Box<dyn std::error::Error
     println!("  Cloud environment: {}", env.is_cloud_environment());
 
     if let Some(container) = &env.container_runtime {
-        println!("  Container runtime: {}", container);
+        println!("  Container runtime: {container}");
     }
 
     if env.kubernetes {
@@ -80,7 +80,7 @@ async fn demonstrate_runtime_detection() -> Result<(), Box<dyn std::error::Error
             println!("  ✓ Stub backend: {}", stub_runtime.backend().description());
         }
         Err(e) => {
-            println!("  ❌ Stub backend failed: {}", e);
+            println!("  ❌ Stub backend failed: {e}");
         }
     }
 
@@ -93,7 +93,7 @@ async fn demonstrate_runtime_detection() -> Result<(), Box<dyn std::error::Error
             );
         }
         Err(e) => {
-            println!("  ⚠ Epoll backend: {}", e);
+            println!("  ⚠ Epoll backend: {e}");
         }
     }
 
@@ -106,7 +106,7 @@ async fn demonstrate_runtime_detection() -> Result<(), Box<dyn std::error::Error
             );
         }
         Err(e) => {
-            println!("  ⚠ io_uring backend: {}", e);
+            println!("  ⚠ io_uring backend: {e}");
         }
     }
 
@@ -121,7 +121,7 @@ async fn demonstrate_hot_potato_api() -> Result<(), Box<dyn std::error::Error>> 
     let ring = match Ring::new(32) {
         Ok(ring) => ring,
         Err(e) => {
-            println!("⚠ Ring creation failed (expected on non-Linux): {}", e);
+            println!("⚠ Ring creation failed (expected on non-Linux): {e}");
             println!("  Continuing with API demonstration...");
             return Ok(());
         }
@@ -176,7 +176,7 @@ async fn demonstrate_cancellation_safety() -> Result<(), Box<dyn std::error::Err
         tracker.next_submission_id()
     };
 
-    println!("  Generated submission ID: {}", submission_id);
+    println!("  Generated submission ID: {submission_id}");
 
     // Create safe operation
     let operation = SafeOperation::new(
@@ -202,7 +202,7 @@ async fn demonstrate_cancellation_safety() -> Result<(), Box<dyn std::error::Err
 
     // Check orphan count
     let orphan_count = orphan_tracker.lock().unwrap().orphan_count();
-    println!("  ✓ Orphaned operations: {}", orphan_count);
+    println!("  ✓ Orphaned operations: {orphan_count}");
 
     if orphan_count > 0 {
         println!("  ✓ Cancellation safety working: buffer ownership tracked!");
@@ -214,7 +214,7 @@ async fn demonstrate_cancellation_safety() -> Result<(), Box<dyn std::error::Err
         let mut tracker = orphan_tracker.lock().unwrap();
         tracker.cleanup_all_orphans()
     };
-    println!("  ✓ Cleaned up {} orphaned operations", cleaned);
+    println!("  ✓ Cleaned up {cleaned} orphaned operations");
 
     // Show completion handling
     println!("\n✅ Completion Handling:");

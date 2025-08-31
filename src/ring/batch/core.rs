@@ -212,14 +212,14 @@ impl<'ring, 'buf> Batch<'ring, 'buf> {
         if dependent >= self.operations.len() {
             return Err(SaferRingError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("Dependent operation index {} is out of bounds", dependent),
+                format!("Dependent operation index {dependent} is out of bounds"),
             )));
         }
 
         if dependency >= self.operations.len() {
             return Err(SaferRingError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("Dependency operation index {} is out of bounds", dependency),
+                format!("Dependency operation index {dependency} is out of bounds"),
             )));
         }
 

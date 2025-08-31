@@ -255,12 +255,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Accept and handle connections in the main event loop
-    // 
+    //
     // EDUCATIONAL NOTE: This demonstrates safer-ring's sequential async pattern.
     // Each connection is handled one at a time to maintain memory safety.
     loop {
         // Accept new connections using safer-ring's safe accept API
-        // accept_safe() returns a Future<Output=Result<i32, Error>> 
+        // accept_safe() returns a Future<Output=Result<i32, Error>>
         // where i32 is the new client file descriptor
         match ring.accept_safe(listener_fd).await {
             Ok(client_fd) => {
@@ -271,28 +271,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     stats.connections_accepted += 1;
                 }
 
-                println!("🔌 New HTTPS connection: fd {}", client_fd);
+                println!("🔌 New HTTPS connection: fd {client_fd}");
 
                 // Handle the client connection sequentially
                 //
                 // IMPORTANT: safer-ring operations are sequential by design for safety!
                 // The owned APIs (read_owned, write_owned) take &mut self, meaning:
                 // 1. Only one operation can be in progress at a time per Ring instance
-                // 2. This prevents data races and memory safety issues  
+                // 2. This prevents data races and memory safety issues
                 // 3. The borrow checker enforces this at compile time
                 //
                 // For concurrent connections, you would need multiple Ring instances
                 // or use a different architecture (like a connection pool).
                 let start_time = Instant::now();
                 let buffer_size = config.buffer_size;
-                let result = handle_https_client(
-                    &mut ring,
-                    &tls_context,
-                    client_fd,
-                    buffer_size,
-                    &stats,
-                )
-                .await;
+                let result =
+                    handle_https_client(&mut ring, &tls_context, client_fd, buffer_size, &stats)
+                        .await;
 
                 match result {
                     Ok(_) => {
@@ -303,7 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                     Err(e) => {
-                        eprintln!("❌ HTTPS connection {} error: {}", client_fd, e);
+                        eprintln!("❌ HTTPS connection {client_fd} error: {e}");
                     }
                 }
 
@@ -318,7 +313,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(e) => {
-                eprintln!("❌ Failed to accept HTTPS connection: {}", e);
+                eprintln!("❌ Failed to accept HTTPS connection: {e}");
             }
         }
     }
@@ -338,7 +333,7 @@ async fn handle_https_client(
     // EDUCATIONAL NOTE: This demonstrates a simplified TLS handshake.
     // In production, you would use a proper TLS library like rustls or openssl.
     // This example focuses on showing safer-ring's I/O patterns rather than TLS details.
-    println!("🤝 Starting TLS handshake for fd {}", client_fd);
+    println!("🤝 Starting TLS handshake for fd {client_fd}");
     let tls_session = perform_tls_handshake(ring, tls_context, client_fd, buffer_size).await?;
 
     // Update handshake statistics
@@ -356,7 +351,7 @@ async fn handle_https_client(
     );
 
     // Handle HTTPS requests in a keep-alive loop
-    loop {
+    {
         // Read HTTP request data using safer-ring's ownership model
         //
         // EDUCATIONAL NOTE: OwnedBuffer demonstrates the "hot potato" pattern:
@@ -369,7 +364,7 @@ async fn handle_https_client(
 
         if bytes_received == 0 {
             // Client closed connection gracefully
-            break;
+            return Ok(());
         }
 
         // Update receive statistics
@@ -379,7 +374,7 @@ async fn handle_https_client(
         }
 
         // Decrypt request if not using kTLS
-        // 
+        //
         // EDUCATIONAL NOTE: BufferAccessGuard provides safe access to buffer data
         // through the Deref trait. We need to extract the data within the guard's lifetime.
         let request_data: Vec<u8> = if let Some(guard) = buffer_back.try_access() {
@@ -423,7 +418,7 @@ async fn handle_https_client(
         // EDUCATIONAL NOTE: OwnedBuffer::from_slice() copies the data into a new buffer
         // that can be safely transferred to the kernel. This ensures:
         // 1. No dangling pointers if our response data goes out of scope
-        // 2. Safe ownership transfer during the async write operation  
+        // 2. Safe ownership transfer during the async write operation
         // 3. The buffer is returned to us when the write completes
         let send_buffer = OwnedBuffer::from_slice(encrypted_response);
         let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
@@ -435,14 +430,10 @@ async fn handle_https_client(
             stats.requests_served += 1;
         }
 
-        println!(
-            "📤 HTTPS response sent to fd {}: {} bytes",
-            client_fd, bytes_sent
-        );
+        println!("📤 HTTPS response sent to fd {client_fd}: {bytes_sent} bytes");
 
         // For HTTP/1.1, we might keep the connection alive
         // For this demo, we'll close after one request
-        break;
     }
 
     Ok(())
@@ -481,25 +472,25 @@ async fn perform_tls_handshake(
     // Each I/O operation follows the ownership transfer pattern
     let buffer = OwnedBuffer::new(buffer_size);
     let (bytes_received, _) = ring.read_owned(client_fd, buffer).await?;
-    println!("🔍 Received ClientHello: {} bytes", bytes_received);
+    println!("🔍 Received ClientHello: {bytes_received} bytes");
 
     // 2. Send ServerHello, Certificate, ServerHelloDone
     let server_hello = create_server_hello_response(tls_context);
     let send_buffer = OwnedBuffer::from_slice(server_hello.as_bytes());
     let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
-    println!("📤 Sent ServerHello: {} bytes", bytes_sent);
+    println!("📤 Sent ServerHello: {bytes_sent} bytes");
 
     // 3. Receive ClientKeyExchange, ChangeCipherSpec, Finished
     let buffer = OwnedBuffer::new(buffer_size);
     let (bytes_received, _) = ring.read_owned(client_fd, buffer).await?;
-    println!("🔍 Received client key exchange: {} bytes", bytes_received);
+    println!("🔍 Received client key exchange: {bytes_received} bytes");
 
     // 4. Send ChangeCipherSpec, Finished
     let server_finished =
         "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nTLS Handshake Complete";
     let send_buffer = OwnedBuffer::from_slice(server_finished.as_bytes());
     let (bytes_sent, _) = ring.write_owned(client_fd, send_buffer).await?;
-    println!("📤 Sent server finished: {} bytes", bytes_sent);
+    println!("📤 Sent server finished: {bytes_sent} bytes");
 
     // 5. Enable kTLS if available
     let ktls_enabled = if tls_context.ktls_available {
@@ -532,7 +523,7 @@ fn enable_ktls_on_socket(fd: i32) -> Result<bool, Box<dyn std::error::Error>> {
     // 1. setsockopt(fd, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info))
     // 2. setsockopt(fd, SOL_TLS, TLS_RX, &crypto_info, sizeof(crypto_info))
 
-    println!("⚡ kTLS enabled on socket fd {}", fd);
+    println!("⚡ kTLS enabled on socket fd {fd}");
     Ok(true)
 }
 

@@ -207,7 +207,7 @@ impl OwnedBuffer {
             BufferOwnership::Kernel(_, existing_id) => {
                 Err(SaferRingError::Io(std::io::Error::new(
                     std::io::ErrorKind::WouldBlock,
-                    format!("Buffer already owned by kernel (operation {})", existing_id),
+                    format!("Buffer already owned by kernel (operation {existing_id})"),
                 )))
             }
             BufferOwnership::Returning => Err(SaferRingError::Io(std::io::Error::new(
@@ -240,8 +240,7 @@ impl OwnedBuffer {
             }
             BufferOwnership::Kernel(_, id) => {
                 panic!(
-                    "Buffer owned by operation {} but tried to return from operation {}",
-                    id, submission_id
+                    "Buffer owned by operation {id} but tried to return from operation {submission_id}"
                 );
             }
             _ => {

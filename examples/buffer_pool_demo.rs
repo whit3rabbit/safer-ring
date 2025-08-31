@@ -243,7 +243,7 @@ async fn run_concurrent_demo_with_pool(
                 // Get a buffer from the pool
                 if let Some(mut buffer) = pool_clone.get() {
                     // Simulate some work with the buffer
-                    let work_data = format!("Task {} operation {}", task_id, local_ops);
+                    let work_data = format!("Task {task_id} operation {local_ops}");
                     let bytes = work_data.as_bytes();
                     let copy_len = std::cmp::min(bytes.len(), buffer.len());
                     let mut slice = buffer.as_mut_slice();
@@ -268,7 +268,7 @@ async fn run_concurrent_demo_with_pool(
                 // Buffer is automatically returned to pool on drop
             }
 
-            println!("   🏁 Task {} completed {} operations", task_id, local_ops);
+            println!("   🏁 Task {task_id} completed {local_ops} operations");
         });
 
         tasks.push(task);
@@ -297,7 +297,7 @@ async fn run_concurrent_demo_with_pool(
     } else {
         0.0
     };
-    println!("   Success rate: {:.2}%", success_rate);
+    println!("   Success rate: {success_rate:.2}%");
 
     Ok(())
 }
@@ -382,7 +382,7 @@ async fn run_stress_test(config: &DemoConfig) -> Result<(), Box<dyn std::error::
                 // Small yield to prevent monopolizing CPU
                 tokio::task::yield_now().await;
             }
-            println!("🏁 Thread {} completed", thread_id);
+            println!("🏁 Thread {thread_id} completed");
         });
 
         tasks.push(task);

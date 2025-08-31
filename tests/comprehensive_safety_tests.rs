@@ -29,7 +29,13 @@ async fn run_property_based_tests() {
     // This is a meta-test to ensure they run as part of the safety suite
 
     let output = Command::new("cargo")
-        .args(["test", "--test", "proptest_buffer_lifecycle", "--", "--nocapture"])
+        .args([
+            "test",
+            "--test",
+            "proptest_buffer_lifecycle",
+            "--",
+            "--nocapture",
+        ])
         .output()
         .expect("Failed to run property-based tests");
 
@@ -74,7 +80,14 @@ async fn run_stress_tests() {
     // These tests are in stress_tests.rs
 
     let output = Command::new("cargo")
-        .args(["test", "--test", "stress_tests", "--release", "--", "--nocapture"])
+        .args([
+            "test",
+            "--test",
+            "stress_tests",
+            "--release",
+            "--",
+            "--nocapture",
+        ])
         .output()
         .expect("Failed to run stress tests");
 
@@ -92,7 +105,13 @@ async fn run_memory_leak_tests() {
     // These tests are in memory_leak_detection.rs
 
     let output = Command::new("cargo")
-        .args(["test", "--test", "memory_leak_detection", "--", "--nocapture"])
+        .args([
+            "test",
+            "--test",
+            "memory_leak_detection",
+            "--",
+            "--nocapture",
+        ])
         .output()
         .expect("Failed to run memory leak tests");
 
@@ -156,18 +175,16 @@ fn verify_safety_test_coverage() {
 
     // Verify all compile-fail test files exist
     for test_name in required_compile_fail_tests {
-        let test_file = format!("tests/compile-fail/{}.rs", test_name);
-        let stderr_file = format!("tests/compile-fail/{}.stderr", test_name);
+        let test_file = format!("tests/compile-fail/{test_name}.rs");
+        let stderr_file = format!("tests/compile-fail/{test_name}.stderr");
 
         assert!(
             std::path::Path::new(&test_file).exists(),
-            "Missing compile-fail test: {}",
-            test_file
+            "Missing compile-fail test: {test_file}"
         );
         assert!(
             std::path::Path::new(&stderr_file).exists(),
-            "Missing compile-fail stderr: {}",
-            stderr_file
+            "Missing compile-fail stderr: {stderr_file}"
         );
     }
 

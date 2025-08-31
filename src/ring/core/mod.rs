@@ -402,12 +402,9 @@ impl<'ring> Drop for Ring<'ring> {
             let debug_info = tracker.debug_info();
             drop(tracker); // Release borrow before panic to avoid poisoning
 
-            let mut message = format!("Ring dropped with {} operations in flight:\n", count);
+            let mut message = format!("Ring dropped with {count} operations in flight:\n");
             for (id, op_type, fd) in debug_info {
-                message.push_str(&format!(
-                    "  - Operation {}: {:?} on fd {}\n",
-                    id, op_type, fd
-                ));
+                message.push_str(&format!("  - Operation {id}: {op_type:?} on fd {fd}\n"));
             }
             message.push_str("All operations must complete before dropping the ring.");
 
@@ -418,6 +415,10 @@ impl<'ring> Drop for Ring<'ring> {
 
 // Ring can be sent between threads but not shared (RefCell prevents Sync)
 unsafe impl<'ring> Send for Ring<'ring> {}
+
+// Ring uses internal synchronization to be thread-safe
+// The RefCell is used only for controlled mutation during completions
+unsafe impl<'ring> Sync for Ring<'ring> {}
 
 impl<'ring> CompletionChecker for Ring<'ring> {
     fn try_complete_safe_operation(
@@ -436,7 +437,7 @@ impl<'ring> CompletionChecker for Ring<'ring> {
                 // Save the result before moving it to handle_completion
                 let result_for_return = match &result {
                     Ok(bytes) => Ok(*bytes),
-                    Err(e) => Err(std::io::Error::new(e.kind(), format!("{}", e))),
+                    Err(e) => Err(std::io::Error::new(e.kind(), format!("{e}"))),
                 };
 
                 let mut orphan_tracker = self.orphan_tracker.lock().unwrap();

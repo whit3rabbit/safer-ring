@@ -28,8 +28,7 @@ fn test_backend_detection() {
         let name = backend.name();
         assert!(
             name == "io_uring" || name == "epoll",
-            "Backend should be either io_uring or epoll, got: {}",
-            name
+            "Backend should be either io_uring or epoll, got: {name}"
         );
     }
 
@@ -82,7 +81,7 @@ fn test_epoll_backend_basic_operations() {
         let (read_fd, write_fd) = create_pipe().expect("Failed to create pipe");
 
         // Test submitting a read operation
-        let buffer = vec![0u8; 64];
+        let buffer = [0u8; 64];
         let buffer_ptr = buffer.as_ptr() as *mut u8;
         let user_data = 42;
 
@@ -128,8 +127,7 @@ fn test_epoll_backend_basic_operations() {
             assert_eq!(*completed_user_data, user_data);
             assert!(
                 io_result.is_ok(),
-                "I/O operation should succeed: {:?}",
-                io_result
+                "I/O operation should succeed: {io_result:?}"
             );
 
             let bytes_read = io_result.as_ref().unwrap();
@@ -168,18 +166,14 @@ fn test_epoll_backend_multiple_operations() {
                 buffer.len(),
                 i as u64,
             );
-            assert!(
-                submit_result.is_ok(),
-                "Submit operation {} should succeed",
-                i
-            );
+            assert!(submit_result.is_ok(), "Submit operation {i} should succeed");
         }
 
         assert_eq!(backend.operations_in_flight(), 3);
 
         // Write data to make operations ready
         for (i, ((_read_fd, write_fd), _buffer)) in pipes.iter().zip(buffers.iter()).enumerate() {
-            let test_data = format!("Data for pipe {}", i);
+            let test_data = format!("Data for pipe {i}");
             unsafe {
                 libc::write(
                     *write_fd,
@@ -214,7 +208,7 @@ fn test_epoll_backend_error_handling() {
         let mut backend = EpollBackend::new().expect("Failed to create EpollBackend");
 
         // Try to submit operation with invalid file descriptor
-        let buffer = vec![0u8; 32];
+        let buffer = [0u8; 32];
         let submit_result = backend.submit_operation(
             OperationType::Read,
             -1, // Invalid fd

@@ -1,8 +1,8 @@
 //! Stress tests for high-throughput scenarios and resource management.
 
-use safer_ring::{BufferPool, PinnedBuffer};
 #[cfg(target_os = "linux")]
 use safer_ring::Ring;
+use safer_ring::{BufferPool, PinnedBuffer};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
@@ -70,7 +70,7 @@ async fn stress_test_buffer_pool_high_frequency() {
     let total_operations: usize = results.into_iter().map(|r| r.unwrap()).sum();
     let elapsed = start_time.elapsed();
 
-    println!("Completed {} operations in {:?}", total_operations, elapsed);
+    println!("Completed {total_operations} operations in {elapsed:?}");
     println!(
         "Operations per second: {:.2}",
         total_operations as f64 / elapsed.as_secs_f64()
@@ -102,7 +102,7 @@ async fn stress_test_ring_operations() {
     let mut temp_files = Vec::new();
 
     for i in 0..10 {
-        let file_path = temp_dir.path().join(format!("test_file_{}.txt", i));
+        let file_path = temp_dir.path().join(format!("test_file_{i}.txt"));
         let file = std::fs::File::create(&file_path).unwrap();
         temp_files.push(file);
     }
@@ -159,10 +159,7 @@ async fn stress_test_ring_operations() {
     let total_operations: usize = results.into_iter().map(|r| r.unwrap()).sum();
     let elapsed = start_time.elapsed();
 
-    println!(
-        "Ring completed {} operations in {:?}",
-        total_operations, elapsed
-    );
+    println!("Ring completed {total_operations} operations in {elapsed:?}");
     println!(
         "Ring operations per second: {:.2}",
         total_operations as f64 / elapsed.as_secs_f64()
@@ -223,10 +220,7 @@ async fn stress_test_memory_pressure() {
 
         // Periodic progress reporting
         if iteration % 100 == 0 {
-            println!(
-                "Memory pressure test: iteration {}/{}",
-                iteration, ITERATIONS
-            );
+            println!("Memory pressure test: iteration {iteration}/{ITERATIONS}");
         }
 
         // Yield to allow cleanup
@@ -294,10 +288,7 @@ async fn stress_test_error_recovery() {
         .map(|r| r.unwrap())
         .fold((0, 0), |(s1, f1), (s2, f2)| (s1 + s2, f1 + f2));
 
-    println!(
-        "Error recovery test: {} successful, {} failed operations",
-        total_success, total_failures
-    );
+    println!("Error recovery test: {total_success} successful, {total_failures} failed operations");
 
     // Pool should be in consistent state despite errors
     let stats = pool.stats();

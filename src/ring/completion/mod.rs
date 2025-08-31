@@ -229,7 +229,7 @@ impl<'ring> Ring<'ring> {
                     // Unknown operation ID shouldn't happen in normal operation
                     return Err(SaferRingError::Io(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        format!("Completion for unknown operation ID: {}", operation_id),
+                        format!("Completion for unknown operation ID: {operation_id}"),
                     )));
                 }
             }
@@ -250,7 +250,7 @@ impl<'ring> Ring<'ring> {
         if tracker.complete_operation(operation_id).is_none() {
             return Err(SaferRingError::Io(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("Completion for unknown operation ID: {}", operation_id),
+                format!("Completion for unknown operation ID: {operation_id}"),
             )));
         }
 

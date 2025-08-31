@@ -120,20 +120,16 @@ impl Backend for IoUringBackend {
             OperationType::ReadVectored | OperationType::WriteVectored => {
                 return Err(SaferRingError::Io(io::Error::new(
                     io::ErrorKind::Unsupported,
-                    format!(
-                        "Operation {:?} not yet implemented in io_uring backend",
-                        op_type
-                    ),
+                    format!("Operation {op_type:?} not yet implemented in io_uring backend"),
                 )));
             }
         };
 
         unsafe {
             self.ring.submission().push(&entry).map_err(|e| {
-                SaferRingError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to push submission queue entry: {:?}", e),
-                ))
+                SaferRingError::Io(std::io::Error::other(format!(
+                    "Failed to push submission queue entry: {e:?}"
+                )))
             })?;
         }
 

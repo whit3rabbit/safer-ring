@@ -254,7 +254,7 @@ impl Runtime {
                 if _environment.is_cloud_environment() {
                     // In cloud environments, io_uring might be restricted
                     if let Some(restriction) = Self::check_io_uring_restrictions() {
-                        eprintln!("io_uring restricted: {}", restriction);
+                        eprintln!("io_uring restricted: {restriction}");
                         return Ok(Backend::Epoll);
                     }
                 }
@@ -270,10 +270,7 @@ impl Runtime {
     #[cfg(target_os = "linux")]
     fn is_io_uring_available() -> bool {
         // Try to create a minimal io_uring instance
-        match io_uring::IoUring::new(1) {
-            Ok(_) => true,
-            Err(_) => false,
-        }
+        io_uring::IoUring::new(1).is_ok()
     }
 
     /// Check if io_uring is available (always false on non-Linux).

@@ -1,7 +1,7 @@
 //! Waker registry for managing async operation notifications.
 
-use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::Mutex;
 use std::task::Waker;
 
 /// Shared waker registry for managing async operations.

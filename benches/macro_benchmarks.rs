@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use pprof::criterion::{Output, PProfProfiler};
-use safer_ring::{BufferPool, PinnedBuffer, Ring};
+use safer_ring::{BufferPool, Ring};
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
@@ -80,7 +80,7 @@ fn bench_file_copy_throughput(c: &mut Criterion) {
             b.iter(|| {
                 rt.block_on(async {
                     let ring = Ring::new(256).unwrap();
-                    let pool = BufferPool::new(32, 64 * 1024).unwrap();
+                    let pool = BufferPool::new(32, 64 * 1024);
 
                     let src_fd = source_file.as_raw_fd();
                     let dst_fd = dest_file.as_raw_fd();
@@ -90,7 +90,7 @@ fn bench_file_copy_throughput(c: &mut Criterion) {
 
                     while offset < size {
                         let read_size = std::cmp::min(chunk_size, size - offset);
-                        let buffer = pool.acquire().unwrap();
+                        let buffer = pool.get().unwrap();
 
                         let (bytes_read, buffer) =
                             ring.read_at(src_fd, buffer, offset as u64).await.unwrap();
@@ -184,7 +184,7 @@ fn bench_concurrent_operations(c: &mut Criterion) {
 
                         for file in &files {
                             let fd = file.as_raw_fd();
-                            let buffer = pool.acquire().unwrap();
+                            let buffer = pool.get().unwrap();
                             if let Ok(future) = ring.read_at(fd, buffer, 0) {
                                 futures.push(future);
                             }
@@ -216,7 +216,7 @@ fn bench_echo_server_simulation(c: &mut Criterion) {
                 b.iter(|| {
                     rt.block_on(async {
                         let ring = Ring::new(256).unwrap();
-                        let pool = BufferPool::new(100, msg_size).unwrap();
+                        let pool = BufferPool::new(100, msg_size);
 
                         // Simulate processing 100 echo requests
                         let mut futures = Vec::new();
@@ -268,7 +268,7 @@ fn bench_batch_operations(c: &mut Criterion) {
                         let mut futures = Vec::new();
 
                         for i in 0..*batch_size {
-                            let buffer = pool.acquire().unwrap();
+                            let buffer = pool.get().unwrap();
                             if let Ok(future) = ring.read_at(fd, buffer, (i * 4096) as u64) {
                                 futures.push(future);
                             }

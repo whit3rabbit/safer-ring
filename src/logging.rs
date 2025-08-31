@@ -110,11 +110,11 @@ impl LogEntry {
         ];
 
         if let Some(op_id) = self.operation_id {
-            parts.push(format!("op:{}", op_id));
+            parts.push(format!("op:{op_id}"));
         }
 
         if let Some(fd) = self.fd {
-            parts.push(format!("fd:{}", fd));
+            parts.push(format!("fd:{fd}"));
         }
 
         parts.push(self.message.clone());
@@ -127,10 +127,10 @@ impl LogEntry {
             let metadata_str = self
                 .metadata
                 .iter()
-                .map(|(k, v)| format!("{}:{}", k, v))
+                .map(|(k, v)| format!("{k}:{v}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            parts.push(format!("metadata:{{{}}}", metadata_str));
+            parts.push(format!("metadata:{{{metadata_str}}}"));
         }
 
         parts.join(" ")
@@ -152,11 +152,11 @@ impl LogEntry {
         ];
 
         if let Some(op_id) = self.operation_id {
-            json_parts.push(format!("\"operation_id\":{}", op_id));
+            json_parts.push(format!("\"operation_id\":{op_id}"));
         }
 
         if let Some(fd) = self.fd {
-            json_parts.push(format!("\"fd\":{}", fd));
+            json_parts.push(format!("\"fd\":{fd}"));
         }
 
         if let Some(duration) = self.duration {
@@ -170,7 +170,7 @@ impl LogEntry {
                 .map(|(k, v)| format!("\"{}\":\"{}\"", k, v.replace('"', "\\\"")))
                 .collect::<Vec<_>>()
                 .join(",");
-            json_parts.push(format!("\"metadata\":{{{}}}", metadata_json));
+            json_parts.push(format!("\"metadata\":{{{metadata_json}}}"));
         }
 
         format!("{{{}}}", json_parts.join(","))
@@ -219,7 +219,7 @@ impl LogOutput for ConsoleOutput {
             entry.format()
         };
 
-        eprintln!("{}", formatted);
+        eprintln!("{formatted}");
         Ok(())
     }
 
@@ -273,7 +273,7 @@ impl LogOutput for FileOutput {
             .open(&self.path)
             .map_err(SaferRingError::Io)?;
 
-        writeln!(file, "{}", formatted).map_err(SaferRingError::Io)?;
+        writeln!(file, "{formatted}").map_err(SaferRingError::Io)?;
         Ok(())
     }
 
@@ -348,7 +348,7 @@ impl Logger {
             let entry = LogEntry::new(
                 LogLevel::Debug,
                 component,
-                &format!("{} completed", operation),
+                &format!("{operation} completed"),
             )
             .with_duration(duration);
             self.write_entry(&entry);
@@ -362,7 +362,7 @@ impl Logger {
 
     /// Log an error with context.
     pub fn log_error(&self, component: &str, error: &SaferRingError, context: &str) {
-        let message = format!("{}: {}", context, error);
+        let message = format!("{context}: {error}");
         let entry = LogEntry::new(LogLevel::Error, component, &message);
         self.write_entry(&entry);
     }
@@ -371,7 +371,7 @@ impl Logger {
     fn write_entry(&self, entry: &LogEntry) {
         for output in &self.outputs {
             if let Err(e) = output.write(entry) {
-                eprintln!("Failed to write log entry: {}", e);
+                eprintln!("Failed to write log entry: {e}");
             }
         }
     }
@@ -380,7 +380,7 @@ impl Logger {
     pub fn flush(&self) {
         for output in &self.outputs {
             if let Err(e) = output.flush() {
-                eprintln!("Failed to flush log output: {}", e);
+                eprintln!("Failed to flush log output: {e}");
             }
         }
     }
@@ -529,19 +529,19 @@ impl PerformanceMetrics {
         ));
 
         for operation in self.get_operation_types() {
-            report.push_str(&format!("Operation: {}\n", operation));
+            report.push_str(&format!("Operation: {operation}\n"));
             report.push_str(&format!("  Count: {}\n", self.get_count(&operation)));
 
             if let Some(avg) = self.get_average_duration(&operation) {
-                report.push_str(&format!("  Average Duration: {:?}\n", avg));
+                report.push_str(&format!("  Average Duration: {avg:?}\n"));
             }
 
             if let Some(min) = self.get_min_duration(&operation) {
-                report.push_str(&format!("  Min Duration: {:?}\n", min));
+                report.push_str(&format!("  Min Duration: {min:?}\n"));
             }
 
             if let Some(max) = self.get_max_duration(&operation) {
-                report.push_str(&format!("  Max Duration: {:?}\n", max));
+                report.push_str(&format!("  Max Duration: {max:?}\n"));
             }
 
             report.push('\n');

@@ -4,7 +4,7 @@
 //! batch_operations.rs test file and shows that it's now resolved.
 
 #[cfg(target_os = "linux")]
-use safer_ring::{Ring, OwnedBuffer};
+use safer_ring::{OwnedBuffer, Ring};
 
 /// This test demonstrates the original lifetime problem and its solution.
 ///
@@ -24,10 +24,7 @@ async fn test_batch_lifetime_constraint_fix() {
         let ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!(
-                    "Could not create ring (io_uring may not be available): {}",
-                    e
-                );
+                println!("Could not create ring (io_uring may not be available): {e}");
                 return;
             }
         };
@@ -41,9 +38,9 @@ async fn test_batch_lifetime_constraint_fix() {
         // First operation
         let buffer1 = OwnedBuffer::new(512);
         let operation1 = ring.read_owned(0, buffer1);
-        
+
         // Second operation (demonstrates composability)
-        let buffer2 = OwnedBuffer::new(256);  
+        let buffer2 = OwnedBuffer::new(256);
         let operation2 = ring.read_owned(0, buffer2);
 
         // Both operations can be created and the ring is still usable
@@ -80,10 +77,7 @@ async fn test_improved_operation_ergonomics() {
         let ring = match Ring::new(32) {
             Ok(r) => r,
             Err(e) => {
-                println!(
-                    "Could not create ring (io_uring may not be available): {}",
-                    e
-                );
+                println!("Could not create ring (io_uring may not be available): {e}");
                 return;
             }
         };
@@ -97,21 +91,21 @@ async fn test_improved_operation_ergonomics() {
         for i in 0..3 {
             let buffer = OwnedBuffer::new(128);
             let operation = ring.read_owned(0, buffer);
-            
+
             match tokio::time::timeout(std::time::Duration::from_millis(10), operation).await {
-                Ok(_) => println!("✅ Sequential operation {} completed", i),
-                Err(_) => println!("✅ Sequential operation {} timed out (expected)", i),
+                Ok(_) => println!("✅ Sequential operation {i} completed"),
+                Err(_) => println!("✅ Sequential operation {i} timed out (expected)"),
             }
         }
 
         // Demonstrate that buffers are properly managed
         let test_data = b"Hello, safer-ring!";
         let buffer = OwnedBuffer::from_slice(test_data);
-        
+
         // Verify buffer properties
         assert_eq!(buffer.size(), test_data.len());
         assert!(buffer.is_user_owned());
-        
+
         if let Some(guard) = buffer.try_access() {
             assert_eq!(guard.len(), test_data.len());
             println!("✅ Buffer access and management working correctly");
@@ -122,7 +116,7 @@ async fn test_improved_operation_ergonomics() {
 }
 
 /// Test showing clean resource management.
-#[tokio::test] 
+#[tokio::test]
 async fn test_clean_resource_management() {
     #[cfg(not(target_os = "linux"))]
     {
@@ -136,10 +130,10 @@ async fn test_clean_resource_management() {
 
         // Test that rings can be created and dropped cleanly
         for i in 0..5 {
-            let mut ring = match Ring::new(16) {
+            let ring = match Ring::new(16) {
                 Ok(r) => r,
                 Err(e) => {
-                    println!("Could not create ring {}: {}", i, e);
+                    println!("Could not create ring {i}: {e}");
                     continue;
                 }
             };
@@ -147,13 +141,13 @@ async fn test_clean_resource_management() {
             // Use the ring briefly
             let buffer = OwnedBuffer::new(64);
             let operation = ring.read_owned(0, buffer);
-            
+
             // Don't wait for completion, just verify it starts
             drop(operation);
-            
+
             // Drop the ring cleanly
             drop(ring);
-            println!("✅ Ring {} created and dropped cleanly", i);
+            println!("✅ Ring {i} created and dropped cleanly");
         }
 
         println!("✅ Clean resource management test completed successfully");

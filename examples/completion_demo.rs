@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - ready: Number of completions waiting to be processed
     // - capacity: Total size of the completion queue
     let (ready, capacity) = ring.completion_queue_stats();
-    println!("Completion queue: {} ready, {} capacity", ready, capacity);
+    println!("Completion queue: {ready} ready, {capacity} capacity");
 
     // Try to complete operations (should be empty initially)
     //
@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // since there's nothing to wait for. This is safer-ring's error handling in action.
     match ring.wait_for_completion() {
         Ok(_) => println!("Unexpected success waiting for completions"),
-        Err(e) => println!("Expected error waiting with no operations: {}", e),
+        Err(e) => println!("Expected error waiting with no operations: {e}"),
     }
 
     // Submit a read operation to demonstrate the completion queue
@@ -99,13 +99,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // one particular operation rather than processing all completions.
             match ring.try_complete_by_id(submitted.id()) {
                 Ok(Some(result)) => {
-                    println!("Operation completed with result: {:?}", result);
+                    println!("Operation completed with result: {result:?}");
                 }
                 Ok(None) => {
                     println!("Operation not yet completed");
                 }
                 Err(e) => {
-                    println!("Error checking operation completion: {}", e);
+                    println!("Error checking operation completion: {e}");
                 }
             }
 
@@ -128,14 +128,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("  File descriptor: {}", completion.fd());
                     println!("  Operation type: {:?}", completion.op_type());
                     println!("  Success: {}", completion.is_success());
-                    
+
                     // EDUCATIONAL NOTE: Extract the result and buffer ownership
                     let (result, buffer) = completion.into_result();
                     match result {
-                        Ok(bytes) => println!("  Transferred {} bytes", bytes),
-                        Err(e) => println!("  I/O error: {}", e),
+                        Ok(bytes) => println!("  Transferred {bytes} bytes"),
+                        Err(e) => println!("  I/O error: {e}"),
                     }
-                    
+
                     // EDUCATIONAL NOTE: Current API limitation - buffer ownership
                     // is not returned in the polling API due to the borrowed reference design.
                     // Users retain ownership of their original buffers.
@@ -145,7 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Show final statistics
             let (ready, _) = ring.completion_queue_stats();
-            println!("Final completion queue ready count: {}", ready);
+            println!("Final completion queue ready count: {ready}");
             println!(
                 "Final operations in flight: {}",
                 ring.operations_in_flight()
@@ -156,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // - Ring is full (too many operations in flight)
             // - Invalid operation parameters
             // - System-level errors
-            println!("Failed to submit operation: {}", e);
+            println!("Failed to submit operation: {e}");
             println!("This is normal for this demo - stdin may not be available");
         }
     }

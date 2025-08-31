@@ -20,7 +20,6 @@ async fn test_pinned_buffer_deallocation() {
             buffers.push(buffer);
         }
 
-
         // Use the buffers
         for buffer in buffers.iter() {
             let slice = buffer.as_slice();
@@ -164,8 +163,7 @@ async fn test_operation_resource_cleanup() {
     for (i, weak_ref) in buffer_weak_refs.iter().enumerate() {
         assert!(
             weak_ref.upgrade().is_none(),
-            "Buffer {} was not deallocated",
-            i
+            "Buffer {i} was not deallocated"
         );
     }
 }
@@ -220,8 +218,7 @@ async fn test_concurrent_memory_cleanup() {
     for (i, weak_ref) in all_weak_refs.iter().enumerate() {
         assert!(
             weak_ref.upgrade().is_none(),
-            "Concurrent buffer {} was not deallocated",
-            i
+            "Concurrent buffer {i} was not deallocated"
         );
     }
 }

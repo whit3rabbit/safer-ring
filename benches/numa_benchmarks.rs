@@ -1,6 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
 use safer_ring::{BufferPool, PinnedBuffer, Ring};
+use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use tempfile::NamedTempFile;
 use tokio::runtime::Runtime;
@@ -96,7 +97,7 @@ impl NumaBufferPool {
 
     fn acquire_local(&self) -> Option<safer_ring::PooledBuffer> {
         let node = self.current_node.load(std::sync::atomic::Ordering::Relaxed) % self.pools.len();
-        self.pools[node].acquire()
+        self.pools[node].get()
     }
 
     fn acquire_round_robin(&self) -> Option<safer_ring::PooledBuffer> {
@@ -104,7 +105,7 @@ impl NumaBufferPool {
             .current_node
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             % self.pools.len();
-        self.pools[node].acquire()
+        self.pools[node].get()
     }
 }
 
@@ -184,7 +185,7 @@ fn bench_numa_buffer_pool(c: &mut Criterion) {
         let pool = BufferPool::new(100, 4096);
 
         b.iter(|| {
-            let buffer = pool.acquire();
+            let buffer = pool.get();
             black_box(buffer);
         })
     });
@@ -212,8 +213,10 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                         let mut futures = Vec::new();
                         for i in 0..10 {
                             let buffer = numa_support::allocate_numa_buffer(4096, node);
-                            let pinned_buffer = PinnedBuffer::new(buffer);
-                            if let Ok(future) = ring.read_at(fd, pinned_buffer, (i * 4096) as u64) {
+                            let mut pinned_buffer = PinnedBuffer::new(buffer);
+                            if let Ok(future) =
+                                ring.read_at(fd, pinned_buffer.as_mut_slice(), (i * 4096) as u64)
+                            {
                                 futures.push(future);
                             }
                         }
@@ -238,8 +241,10 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                         // Allocate buffer on node 0, but process on node 1
                         let buffer = numa_support::allocate_numa_buffer(4096, 0);
                         numa_support::bind_to_numa_node(1).unwrap();
-                        let pinned_buffer = PinnedBuffer::new(buffer);
-                        if let Ok(future) = ring.read_at(fd, pinned_buffer, (i * 4096) as u64) {
+                        let mut pinned_buffer = PinnedBuffer::new(buffer);
+                        if let Ok(future) =
+                            ring.read_at(fd, pinned_buffer.as_mut_slice(), (i * 4096) as u64)
+                        {
                             futures.push(future);
                         }
                     }
@@ -327,7 +332,7 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                     let fd = file.as_raw_fd();
 
                     for i in 0..10 {
-                        if let Some(mut buffer) = pool.acquire() {
+                        if let Some(mut buffer) = pool.get() {
                             if let Ok(future) =
                                 ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64)
                             {

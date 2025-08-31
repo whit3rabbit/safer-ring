@@ -79,7 +79,7 @@ pub fn allocate_aligned_buffer(size: usize) -> Box<[u8]> {
     unsafe {
         let ptr = alloc_zeroed(layout);
         if ptr.is_null() {
-            panic!("Failed to allocate aligned buffer of size {}", size);
+            panic!("Failed to allocate aligned buffer of size {size}");
         }
 
         // Convert raw pointer to boxed slice
@@ -141,10 +141,7 @@ pub fn allocate_with_alignment(size: usize, align: usize) -> Box<[u8]> {
     unsafe {
         let ptr = alloc_zeroed(layout);
         if ptr.is_null() {
-            panic!(
-                "Failed to allocate buffer of size {} with alignment {}",
-                size, align
-            );
+            panic!("Failed to allocate buffer of size {size} with alignment {align}");
         }
 
         let slice = std::slice::from_raw_parts_mut(ptr, size);

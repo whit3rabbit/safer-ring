@@ -36,13 +36,13 @@
 //! - No risk of data corruption due to memory safety guarantees
 
 use safer_ring::{OwnedBuffer, Ring};
+use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs::{File, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::os::unix::io::AsRawFd;
 use std::time::{Duration, Instant};
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 
 /// Configuration for the file copy operation
 #[derive(Debug)]
@@ -215,7 +215,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     // Note: We ignore parallel_ops in this educational example since safer-ring is sequential
     println!("⚡ Operations: Sequential (safer-ring design)");
-    println!("🔧 Ring size: {} (small is fine for sequential ops)", config.ring_size);
+    println!(
+        "🔧 Ring size: {} (small is fine for sequential ops)",
+        config.ring_size
+    );
     println!();
 
     // STEP 1: Validate source file and get metadata
@@ -237,7 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .open(&config.dest_path)?;
     let dest_fd = dest_file.as_raw_fd();
 
-    // STEP 3: Create the safer-ring Ring instance  
+    // STEP 3: Create the safer-ring Ring instance
     // EDUCATIONAL NOTE: Ring creation is the foundation of any safer-ring application.
     // We don't need many entries since we're doing sequential operations.
     let ring = Ring::new(config.ring_size)?;
@@ -271,7 +274,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     verify_copy(&config.source_path, &config.dest_path)?;
     println!("✅ Copy verification successful!");
     println!();
-    
+
     // Educational conclusion - key takeaways
     println!("📚 Key Takeaways from this Example:");
     println!("   ✓ Ownership transfer (*_owned methods) ensures maximum safety");
@@ -282,7 +285,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✓ Single buffer efficiently reused across all operations");
     println!();
     println!("🎯 For higher parallelism, consider:");
-    println!("   • Multiple Ring instances (one per thread)"); 
+    println!("   • Multiple Ring instances (one per thread)");
     println!("   • Batch operations for grouped I/O");
     println!("   • This pattern scales perfectly with multiple threads");
 
@@ -365,7 +368,9 @@ async fn copy_file_simple(
     });
 
     println!("🔄 Starting OWNERSHIP TRANSFER copy operation...");
-    println!("📚 Educational Note: Using safer-ring's recommended *_owned methods for maximum safety");
+    println!(
+        "📚 Educational Note: Using safer-ring's recommended *_owned methods for maximum safety"
+    );
 
     // Create a single, reusable OwnedBuffer for the entire copy operation.
     // This demonstrates efficient buffer reuse with the hot potato pattern.
@@ -376,7 +381,7 @@ async fn copy_file_simple(
     while offset < file_size {
         let chunk_size = std::cmp::min(config.buffer_size as u64, file_size - offset);
 
-        println!("📖 Reading {} bytes at offset {} (ownership transfer)", chunk_size, offset);
+        println!("📖 Reading {chunk_size} bytes at offset {offset} (ownership transfer)");
 
         // STEP 1: Perform read using the new `read_at_owned` API
         // EDUCATIONAL BREAKDOWN:
@@ -386,16 +391,14 @@ async fn copy_file_simple(
         // - `.await`: Waits for kernel to complete the I/O operation
         // - Second `?`: Handles I/O completion errors (e.g., file not found, permission denied)
         // - Returns (bytes_read, buffer) on success - buffer ownership returned!
-        let (bytes_read, returned_buffer) = ring
-            .read_at_owned(source_fd, buffer, offset)
-            .await?;
+        let (bytes_read, returned_buffer) = ring.read_at_owned(source_fd, buffer, offset).await?;
 
         // Reclaim ownership of the buffer for the next step
         buffer = returned_buffer;
 
         // STEP 2: Process the read data (only if we actually read something)
         if bytes_read > 0 {
-            println!("✏️  Writing {} bytes at offset {} (ownership transfer)", bytes_read, offset);
+            println!("✏️  Writing {bytes_read} bytes at offset {offset} (ownership transfer)");
 
             // STEP 3: Perform write using the new `write_at_owned` API
             // EDUCATIONAL BREAKDOWN:
@@ -413,10 +416,9 @@ async fn copy_file_simple(
 
             // Verify we wrote all the data we intended to
             if bytes_written != bytes_read {
-                return Err(format!(
-                    "Partial write: expected {}, wrote {}",
-                    bytes_read, bytes_written
-                ).into());
+                return Err(
+                    format!("Partial write: expected {bytes_read}, wrote {bytes_written}").into(),
+                );
             }
 
             // STEP 4: Update our progress tracking
@@ -441,7 +443,7 @@ async fn copy_file_simple(
     println!("   - Reused single `OwnedBuffer` efficiently across all operations");
     println!("   - Applied ?.await? pattern for robust error handling");
     println!("   - No complex lifetime management or pinning required");
-    
+
     Ok(stats)
 }
 
@@ -455,8 +457,7 @@ fn verify_copy(source_path: &str, dest_path: &str) -> Result<(), Box<dyn std::er
 
     if source_size != dest_size {
         return Err(format!(
-            "File size mismatch: source {} bytes, destination {} bytes",
-            source_size, dest_size
+            "File size mismatch: source {source_size} bytes, destination {dest_size} bytes"
         )
         .into());
     }

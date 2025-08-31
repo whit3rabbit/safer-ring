@@ -100,7 +100,7 @@ impl FeatureDetector {
             let (major, minor, patch) = Self::parse_kernel_version(&release).map_err(|e| {
                 SaferRingError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    format!("Failed to parse kernel version: {}", e),
+                    format!("Failed to parse kernel version: {e}"),
                 ))
             })?;
 

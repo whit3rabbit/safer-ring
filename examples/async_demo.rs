@@ -30,12 +30,12 @@
 //! - Error propagation in async contexts
 //! - Resource cleanup in async destructors
 
-use safer_ring::{Ring, OwnedBuffer, BufferPool};
-use std::sync::Arc;
+use safer_ring::{BufferPool, OwnedBuffer, Ring};
 use std::env;
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::time::{sleep, timeout};
 
@@ -161,7 +161,7 @@ async fn run_basic_async_demo(
         let temp_fd = temp_file.as_raw_fd();
 
         // Sequential read operation using the safer owned API (recommended approach)
-        // 
+        //
         // Key points about safer-ring async operations:
         // 1. OwnedBuffer provides memory safety through ownership transfer
         // 2. The buffer is "loaned" to the kernel during the operation
@@ -176,14 +176,14 @@ async fn run_basic_async_demo(
         } else {
             "Buffer not accessible".to_string()
         };
-        println!("      📖 Read {} bytes: {}", bytes_read, data_str);
+        println!("      📖 Read {bytes_read} bytes: {data_str}");
 
         // Sequential write operation using safer owned API
         // from_slice() creates a buffer by copying the data - safe and simple
         let write_data = b"Appended data from async operation";
         let write_buffer = OwnedBuffer::from_slice(write_data);
         let (bytes_written, _) = ring.write_owned(temp_fd, write_buffer).await?;
-        println!("      ✏️  Wrote {} bytes sequentially", bytes_written);
+        println!("      ✏️  Wrote {bytes_written} bytes sequentially");
     } else {
         // Simulate operations without real files
         let buffer = OwnedBuffer::new(config.buffer_size);
@@ -200,7 +200,7 @@ async fn run_basic_async_demo(
         // This demonstrates how errors are handled in safer-ring async operations
         // Using an invalid file descriptor (-1) should fail gracefully
         let buffer = OwnedBuffer::new(64);
-        
+
         // The read_owned operation will return an error without panicking
         // This showcases safer-ring's robust error handling
         ring.read_owned(-1, buffer).await // Invalid fd - should fail
@@ -209,7 +209,7 @@ async fn run_basic_async_demo(
 
     match result {
         Ok(_) => println!("      ❌ Unexpected success with invalid fd"),
-        Err(e) => println!("      ✅ Properly caught error: {}", e),
+        Err(e) => println!("      ✅ Properly caught error: {e}"),
     }
 
     // 3. Chaining async operations
@@ -251,9 +251,9 @@ async fn run_concurrent_demo(
         let file3 = create_temp_file("File 3 content")?;
 
         // IMPORTANT: safer-ring operations are sequential by design for safety!
-        // 
+        //
         // The owned APIs (read_owned, write_owned) take &mut self, which means:
-        // 1. Only one operation can be in progress at a time per Ring instance  
+        // 1. Only one operation can be in progress at a time per Ring instance
         // 2. This prevents data races and memory safety issues
         // 3. The borrow checker enforces this at compile time
         //
@@ -261,10 +261,10 @@ async fn run_concurrent_demo(
         // batch operations (demonstrated later). This design prioritizes safety.
         let buffer1 = OwnedBuffer::new(config.buffer_size);
         let (bytes1, _) = ring.read_owned(file1.as_raw_fd(), buffer1).await?;
-        
+
         let buffer2 = OwnedBuffer::new(config.buffer_size);
         let (bytes2, _) = ring.read_owned(file2.as_raw_fd(), buffer2).await?;
-        
+
         let buffer3 = OwnedBuffer::new(config.buffer_size);
         let (bytes3, _) = ring.read_owned(file3.as_raw_fd(), buffer3).await?;
 
@@ -286,8 +286,7 @@ async fn run_concurrent_demo(
         );
 
         println!(
-            "      ✅ Concurrent simulation tasks: {:?}, {:?}, {:?}",
-            result1, result2, result3
+            "      ✅ Concurrent simulation tasks: {result1:?}, {result2:?}, {result3:?}"
         );
     }
 
@@ -298,17 +297,17 @@ async fn run_concurrent_demo(
 
     let race_result = tokio::select! {
         result = simulate_async_work("Fast task", 10) => {
-            format!("Fast task won: {:?}", result)
+            format!("Fast task won: {result:?}")
         }
         result = simulate_async_work("Slow task", 100) => {
-            format!("Slow task won: {:?}", result)
+            format!("Slow task won: {result:?}")
         }
         _ = sleep(Duration::from_millis(50)) => {
             "Timeout won".to_string()
         }
     };
 
-    println!("      🏁 Race result: {}", race_result);
+    println!("      🏁 Race result: {race_result}");
 
     // 3. Spawning concurrent tasks
     println!("   3️⃣  Spawning concurrent tasks...");
@@ -318,7 +317,7 @@ async fn run_concurrent_demo(
         let task = tokio::spawn(async move {
             let delay = (i * 10) as u64;
             sleep(Duration::from_millis(delay)).await;
-            format!("Task {} completed after {}ms", i, delay)
+            format!("Task {i} completed after {delay}ms")
         });
         tasks.push(task);
     }
@@ -331,7 +330,7 @@ async fn run_concurrent_demo(
 
     println!("      📋 All {} tasks completed:", results.len());
     for result in results.iter().take(3) {
-        println!("         - {}", result);
+        println!("         - {result}");
     }
     if results.len() > 3 {
         println!("         ... and {} more", results.len() - 3);
@@ -356,21 +355,21 @@ async fn run_batch_demo(
     if config.with_files {
         let start_time = Instant::now();
         let mut total_bytes = 0;
-        
+
         // Process operations sequentially
         for i in 0..config.concurrent {
-            let temp_file = create_temp_file(&format!("Batch file {} content", i))?;
+            let temp_file = create_temp_file(&format!("Batch file {i} content"))?;
             let buffer = OwnedBuffer::new(config.buffer_size);
-            
+
             let (bytes_read, _) = ring.read_owned(temp_file.as_raw_fd(), buffer).await?;
             total_bytes += bytes_read;
         }
-        
+
         let batch_time = start_time.elapsed();
         println!("   📈 Sequential results:");
         println!("      ✅ Operations completed: {}", config.concurrent);
-        println!("      📊 Total bytes read: {}", total_bytes);
-        println!("      ⏱️  Total time: {:?}", batch_time);
+        println!("      📊 Total bytes read: {total_bytes}");
+        println!("      ⏱️  Total time: {batch_time:?}");
         if config.concurrent > 0 {
             println!(
                 "      📊 Average time per operation: {:?}",
@@ -381,7 +380,7 @@ async fn run_batch_demo(
         // Simulate operations
         let mut buffers = Vec::new();
         for i in 0..std::cmp::min(config.concurrent, 4) {
-            let test_data = format!("Sequential operation {}", i);
+            let test_data = format!("Sequential operation {i}");
             let buffer = OwnedBuffer::from_slice(test_data.as_bytes());
             buffers.push(buffer);
         }
@@ -401,7 +400,7 @@ async fn run_timeout_demo(
 
     // 1. Timeout with successful operation - important for robust I/O
     println!("   1️⃣  Timeout with fast operation...");
-    
+
     // tokio::time::timeout wraps any future with a timeout
     // This is crucial for network I/O where operations might hang
     // With safer-ring, you can timeout any async operation safely
@@ -412,7 +411,7 @@ async fn run_timeout_demo(
     .await;
 
     match fast_result {
-        Ok(result) => println!("      ✅ Operation completed: {:?}", result),
+        Ok(result) => println!("      ✅ Operation completed: {result:?}"),
         Err(_) => println!("      ⏰ Operation timed out"),
     }
 
@@ -425,7 +424,7 @@ async fn run_timeout_demo(
     .await;
 
     match slow_result {
-        Ok(result) => println!("      ✅ Operation completed: {:?}", result),
+        Ok(result) => println!("      ✅ Operation completed: {result:?}"),
         Err(_) => println!("      ⏰ Operation timed out (expected)"),
     }
 
@@ -438,7 +437,7 @@ async fn run_timeout_demo(
     // This is valuable for implementing cancellation tokens with safer-ring operations
     tokio::select! {
         result = simulate_async_work("Cancellable task", 200) => {
-            println!("      ✅ Task completed: {:?}", result);
+            println!("      ✅ Task completed: {result:?}");
         }
         _ = sleep(Duration::from_millis(30)) => {
             cancel_signal = true;
@@ -481,10 +480,10 @@ async fn run_buffer_pool_async_demo(
             if let Some(mut buffer) = pool_clone.get() {
                 // Use the pooled buffer for work
                 // PooledBuffer automatically returns to pool when dropped
-                let work_data = format!("Pooled buffer task {}", i);
+                let work_data = format!("Pooled buffer task {i}");
                 let bytes = work_data.as_bytes();
                 let copy_len = std::cmp::min(bytes.len(), buffer.len());
-                
+
                 // Copy data into the pooled buffer
                 buffer.as_mut_slice()[..copy_len].copy_from_slice(&bytes[..copy_len]);
 
@@ -492,8 +491,7 @@ async fn run_buffer_pool_async_demo(
                 sleep(Duration::from_millis(20 + i * 5)).await;
 
                 Ok::<String, Box<dyn std::error::Error + Send + Sync>>(format!(
-                    "Task {} processed {} bytes",
-                    i, copy_len
+                    "Task {i} processed {copy_len} bytes"
                 ))
             } else {
                 Err("Failed to get buffer from pool".into())
@@ -510,19 +508,18 @@ async fn run_buffer_pool_async_demo(
     for task in tasks {
         match task.await? {
             Ok(result) => {
-                println!("      ✅ {}", result);
+                println!("      ✅ {result}");
                 successful += 1;
             }
             Err(e) => {
-                println!("      ❌ Error: {}", e);
+                println!("      ❌ Error: {e}");
                 failed += 1;
             }
         }
     }
 
     println!(
-        "   📊 Pool async results: {} successful, {} failed",
-        successful, failed
+        "   📊 Pool async results: {successful} successful, {failed} failed"
     );
 
     // Show final pool statistics
@@ -541,7 +538,7 @@ async fn simulate_async_work(
     delay_ms: u64,
 ) -> Result<String, Box<dyn std::error::Error>> {
     sleep(Duration::from_millis(delay_ms)).await;
-    Ok(format!("{} completed after {}ms", name, delay_ms))
+    Ok(format!("{name} completed after {delay_ms}ms"))
 }
 
 /// Create a temporary file with given content

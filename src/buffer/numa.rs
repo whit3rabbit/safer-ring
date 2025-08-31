@@ -81,9 +81,7 @@ fn try_numa_allocation(size: usize, node: usize) -> Result<Box<[u8]>, std::io::E
     let original_affinity = get_current_affinity()?;
 
     // Set affinity to NUMA node CPUs
-    if let Err(e) = set_numa_affinity(node) {
-        return Err(e);
-    }
+    set_numa_affinity(node)?;
 
     // Allocate buffer (kernel will prefer local memory)
     let result = allocate_aligned_buffer(size);
@@ -120,7 +118,7 @@ fn set_numa_affinity(node: usize) -> Result<(), std::io::Error> {
     if cpus.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("No CPUs found for NUMA node {}", node),
+            format!("No CPUs found for NUMA node {node}"),
         ));
     }
 
@@ -161,17 +159,17 @@ fn set_cpu_affinity(cpu_set: &libc::cpu_set_t) -> Result<(), std::io::Error> {
 /// Get list of CPUs for a NUMA node by reading sysfs.
 #[cfg(target_os = "linux")]
 fn get_numa_node_cpus(node: usize) -> Result<Vec<usize>, std::io::Error> {
-    let path = format!("/sys/devices/system/node/node{}/cpulist", node);
+    let path = format!("/sys/devices/system/node/node{node}/cpulist");
 
     if !Path::new(&path).exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("NUMA node {} not found", node),
+            format!("NUMA node {node} not found"),
         ));
     }
 
     let cpulist = fs::read_to_string(&path)?;
-    parse_cpu_list(&cpulist.trim())
+    parse_cpu_list(cpulist.trim())
 }
 
 /// Parse CPU list format (e.g., "0-7,16-23" -> [0,1,2,3,4,5,6,7,16,17,18,19,20,21,22,23]).
@@ -349,7 +347,7 @@ pub fn current_numa_node() -> Option<usize> {
 #[cfg(target_os = "linux")]
 fn get_cpu_numa_node(cpu: usize) -> Result<usize, std::io::Error> {
     // Read from /sys/devices/system/cpu/cpuX/node
-    let path = format!("/sys/devices/system/cpu/cpu{}/node", cpu);
+    let path = format!("/sys/devices/system/cpu/cpu{cpu}/node");
 
     if Path::new(&path).exists() {
         let node_str = fs::read_to_string(&path)?;

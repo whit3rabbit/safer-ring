@@ -131,7 +131,7 @@ impl<'ring> Ring<'ring> {
     /// Read with ownership transfer at a specific offset (hot potato pattern).
     ///
     /// This is the safe, recommended API for positioned file reads.
-    /// You give the buffer, the kernel uses it at the specified offset, 
+    /// You give the buffer, the kernel uses it at the specified offset,
     /// and you get it back when done.
     ///
     /// # Arguments
@@ -170,7 +170,12 @@ impl<'ring> Ring<'ring> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn read_at_owned(&self, fd: RawFd, buffer: OwnedBuffer, offset: u64) -> SafeOperationFuture<'_> {
+    pub fn read_at_owned(
+        &self,
+        fd: RawFd,
+        buffer: OwnedBuffer,
+        offset: u64,
+    ) -> SafeOperationFuture<'_> {
         // Generate unique submission ID
         let submission_id = {
             let mut tracker = self.orphan_tracker.lock().unwrap();
@@ -228,7 +233,13 @@ impl<'ring> Ring<'ring> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn write_at_owned(&self, fd: RawFd, buffer: OwnedBuffer, offset: u64, len: usize) -> SafeOperationFuture<'_> {
+    pub fn write_at_owned(
+        &self,
+        fd: RawFd,
+        buffer: OwnedBuffer,
+        offset: u64,
+        len: usize,
+    ) -> SafeOperationFuture<'_> {
         // Generate unique submission ID
         let submission_id = {
             let mut tracker = self.orphan_tracker.lock().unwrap();
@@ -394,7 +405,13 @@ impl<'ring> Ring<'ring> {
     ///
     /// This method submits the read operation directly to the backend using
     /// the buffer's raw pointer, since we have ownership transfer semantics.
-    fn submit_safe_read_at(&self, fd: RawFd, buffer: &OwnedBuffer, offset: u64, submission_id: u64) -> Result<()> {
+    fn submit_safe_read_at(
+        &self,
+        fd: RawFd,
+        buffer: &OwnedBuffer,
+        offset: u64,
+        submission_id: u64,
+    ) -> Result<()> {
         let (buffer_ptr, buffer_len) = buffer.as_ptr_and_len();
 
         self.backend.borrow_mut().submit_operation(
@@ -411,7 +428,14 @@ impl<'ring> Ring<'ring> {
     ///
     /// This method submits the write operation directly to the backend using
     /// the buffer's raw pointer, since we have ownership transfer semantics.
-    fn submit_safe_write_at(&self, fd: RawFd, buffer: &OwnedBuffer, offset: u64, len: usize, submission_id: u64) -> Result<()> {
+    fn submit_safe_write_at(
+        &self,
+        fd: RawFd,
+        buffer: &OwnedBuffer,
+        offset: u64,
+        len: usize,
+        submission_id: u64,
+    ) -> Result<()> {
         let (buffer_ptr, buffer_capacity) = buffer.as_ptr_and_len();
         if len > buffer_capacity {
             return Err(SaferRingError::Io(io::Error::new(
