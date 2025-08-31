@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.2.3). If omitted, version will be read from Cargo.toml.'
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Determine release version
+        id: vars
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Fallback: read version from Cargo.toml [package] section
+            VERSION=$(awk '/^\[package\]/{f=1;next} /^\[/{f=0} f && /^version/ {gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Read version from Cargo.toml
+        id: cargo
+        shell: bash
+        run: |
+          CARGO_VERSION=$(awk '/^\[package\]/{f=1;next} /^\[/{f=0} f && /^version/ {gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          echo "cargo_version=$CARGO_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify version matches Cargo.toml
+        shell: bash
+        run: |
+          if [ "${{ steps.vars.outputs.version }}" != "${{ steps.cargo.outputs.cargo_version }}" ]; then
+            echo "Version mismatch: tag/input='${{ steps.vars.outputs.version }}' vs Cargo.toml='${{ steps.cargo.outputs.cargo_version }}'" >&2
+            exit 1
+          fi
+
+      - name: Check crates.io token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "Missing CARGO_REGISTRY_TOKEN secret. Please add it in repo settings." >&2
+            exit 1
+          fi
+
+      - name: Package (dry run)
+        run: cargo publish --dry-run
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish

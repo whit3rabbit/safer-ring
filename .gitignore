@@ -34,3 +34,6 @@ Cargo.lock
 
 # User Target
 .user_target
+
+# AI
+CLUADE.md

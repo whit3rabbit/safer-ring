@@ -1,355 +1,246 @@
 # Safer-Ring
 
-A memory-safe Rust wrapper around Linux's io_uring that provides zero-cost abstractions while preventing common memory safety issues through compile-time guarantees.
+Safer-Ring is a memory-safe Rust wrapper for Linux's `io_uring` that provides zero-cost abstractions while preventing common memory safety issues through compile-time guarantees.
 
-> **🔑 Core Innovation**: Transform "if it compiles, it might panic" into Rust's standard "if it compiles, it's memory safe" guarantee through explicit buffer ownership transfer.
+This library's core innovation is an ownership transfer model that transforms the "if it compiles, it might panic" problem of some `io_uring` crates into Rust's standard "if it compiles, it's memory safe" guarantee.
 
-## Safety Model: The "Hot Potato" Pattern
+## Table of Contents
 
-The design's key innovation is the **ownership transfer model** (also known as the "hot potato" pattern):
+- [Core Safety Model: The "Hot Potato" Pattern](#core-safety-model-the-hot-potato-pattern)
+- [Key Features](#key-features)
+- [When to Use Safer-Ring](#when-to-use-safer-ring)
+- [Quick Start](#quick-start)
+- [API Guide: The `OwnedBuffer` API](#api-guide-the-ownedbuffer-api)
+  - [File I/O](#file-io)
+  - [Batch Operations](#batch-operations)
+  - [Tokio `AsyncRead`/`AsyncWrite` Compatibility](#tokio-asyncreadasyncwrite-compatibility)
+- [A Note on the `PinnedBuffer` API](#a-note-on-the-pinnedbuffer-api)
+- [Platform Support](#platform-support)
+- [Getting Started](#getting-started)
+  - [Building](#building)
+  - [Testing](#testing)
+- [Further Resources](#further-resources)
+- [Contributing](#contributing)
+- [License](#license)
 
-- **You give us the buffer** → **Kernel uses it safely** → **You get it back when done**
-- **Compile-time safety**: Buffers can't be accessed while operations are in-flight
-- **Zero runtime overhead**: All safety checks happen at compile time
-- **Cancellation safety**: Operations can be safely dropped without use-after-free bugs
+## Core Safety Model: The "Hot Potato" Pattern
+
+The library is built on an ownership transfer model, colloquially known as the "hot potato" pattern. This pattern ensures memory safety by managing buffer ownership explicitly:
+
+1.  Your application provides an `OwnedBuffer` to the `Ring`.
+2.  Ownership of the buffer is transferred to the kernel for the duration of the I/O operation.
+3.  During this time, your application cannot access the buffer's memory, which is enforced at compile time.
+4.  Once the kernel completes the operation, ownership of the buffer is returned to your application along with the result.
+
+This cycle prevents use-after-free errors, data races, and other common memory safety issues associated with completion-based asynchronous I/O, all without incurring runtime overhead.
 
 ```rust
 use safer_ring::{Ring, OwnedBuffer};
 
-async fn safe_read_example() -> Result<(), Box<dyn std::error::Error>> {
-    let mut ring = Ring::new(32)?;
-    let buffer = OwnedBuffer::new(1024);
-    
-    // Give buffer to kernel, get it back when done
-    let (bytes_read, buffer) = ring.read_owned(0, buffer).await?;
-    
-    println!("Read {} bytes: {:?}", bytes_read, &buffer.as_slice()[..bytes_read]);
-    // Buffer is safely returned for reuse
-    Ok(())
-}
+# async fn doc_example() -> Result<(), Box<dyn std::error::Error>> {
+let ring = Ring::new(32)?;
+let buffer = OwnedBuffer::new(1024);
+
+// Give the buffer to the kernel for the read operation.
+// When the await completes, we get the buffer back.
+let (bytes_read, returned_buffer) = ring.read_owned(0, buffer).await?;
+
+println!("Read {} bytes", bytes_read);
+
+// The returned buffer can be safely reused for the next operation.
+let (bytes_written, _final_buffer) = ring.write_owned(1, returned_buffer).await?;
+# Ok(())
+# }
 ```
-
-This approach transforms the "if it compiles, it panics" problem of existing io_uring crates into Rust's standard "if it compiles, it's memory safe" guarantee.
-
 
 ## Key Features
 
-### 🔒 Memory Safety
-- **Compile-time buffer lifetime tracking**: Impossible to access buffers during I/O operations
-- **Orphan operation tracking**: Safely handles dropped futures with in-flight operations  
-- **No use-after-free**: Buffer ownership is transferred and returned atomically
+-   **Memory Safety**: Compile-time guarantees that buffers outlive their operations, preventing use-after-free bugs.
+-   **Cancellation Safety**: Dropped `Future`s are handled gracefully. The underlying I/O operation will complete, and its buffer will be safely managed by an "orphan tracker" to prevent memory leaks.
+-   **Type-Safe State Machine**: An internal, type-level state machine prevents invalid operation sequences (e.g., submitting an operation twice) at compile time.
+-   **High Performance**: Aims for zero-cost abstractions over raw `io_uring`, with support for batch operations and buffer pooling to minimize syscalls and allocations.
+-   **Ergonomic Async API**: Integrates seamlessly with Rust's `async/await` ecosystem and provides compatibility layers for `tokio::io::AsyncRead` and `AsyncWrite`.
+-   **Runtime Detection**: Automatically detects `io_uring` support and can fall back to an `epoll`-based backend where `io_uring` is unavailable or restricted.
 
-### 🎯 Type Safety  
-- **Operation state machine**: Prevents invalid state transitions (submit → complete → resubmit)
-- **24 compile-fail tests**: Verify safety invariants at compile time
-- **Builder pattern**: Impossible to create invalid operations
+## When to Use Safer-Ring
 
-### ⚡ Performance
-- **Zero-cost abstractions**: No runtime overhead compared to raw io_uring
-- **Efficient batch operations**: Submit multiple operations in a single syscall
-- **Buffer pooling**: Reuse buffers across operations to reduce allocations
+This library is ideal for building high-performance, I/O-bound applications on Linux where memory safety is critical.
 
-### 🔄 Async Integration
-- **Native async/await support**: Works seamlessly with tokio and other async runtimes
-- **AsyncRead/AsyncWrite compatibility**: Drop-in replacement for existing tokio code
-- **Cancellation safety**: Operations can be dropped safely without memory leaks
+**Choose Safer-Ring for:**
+-   Network services (web servers, proxies, API gateways).
+-   Storage systems (databases, file servers, message queues).
+-   Applications requiring high concurrency with predictable latency.
+-   Safely migrating existing `tokio`-based applications to `io_uring`.
 
-### 🌐 Tokio Compatibility  
+**Consider alternatives if:**
+-   Your application is not primarily I/O-bound.
+-   You require support for non-Linux platforms (as `io_uring` is Linux-specific).
+-   Absolute maximum performance is required, and you are willing to manage `unsafe` code directly.
+
+## Quick Start
+
+Add `safer-ring` to your `Cargo.toml`:
+```toml
+[dependencies]
+safer-ring = "0.1.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+Here is a complete example of reading from a file using the recommended `OwnedBuffer` API.
+
 ```rust
-use safer_ring::compat::AsyncCompat;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use safer_ring::{Ring, OwnedBuffer};
+use std::fs::File;
+use std::os::unix::io::AsRawFd;
 
-// Drop-in replacement for tokio File operations
-async fn tokio_example() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Create a Ring. It can be shared immutably.
     let ring = Ring::new(32)?;
-    let mut file = ring.file(fd);
-    
-    let mut buffer = vec![0u8; 1024];
-    let bytes_read = file.read(&mut buffer).await?;
-    println!("Read {} bytes", bytes_read);
+
+    // 2. Open a file and get its raw file descriptor.
+    let file = File::open("README.md")?;
+    let fd = file.as_raw_fd();
+
+    // 3. Create a buffer whose ownership will be transferred.
+    let buffer = OwnedBuffer::new(4096);
+
+    // 4. Perform the read operation.
+    // Ownership of `buffer` is given to the operation.
+    let (bytes_read, returned_buffer) = ring.read_owned(fd, buffer).await?;
+    // After `.await`, ownership of the buffer is returned.
+
+    println!("Successfully read {} bytes.", bytes_read);
+
+    // 5. Access the data safely.
+    if let Some(guard) = returned_buffer.try_access() {
+        let content = std::str::from_utf8(&guard[..bytes_read])?;
+        println!("File content starts with: '{}...'", content.lines().next().unwrap_or(""));
+    }
+
     Ok(())
 }
 ```
 
-## Platform Support
+## API Guide: The `OwnedBuffer` API
 
-This library is designed for Linux systems with io_uring support:
-- **Minimum**: Linux 5.1 (basic io_uring support)
-- **Recommended**: Linux 5.19+ (buffer rings, multi-shot operations)
-- **Optimal**: Linux 6.0+ (latest performance improvements)
+The primary and recommended API is based on `OwnedBuffer` and methods with an `_owned` suffix. This API enforces the safe ownership transfer model. For a complete reference, please see `docs/API.md`.
 
-On non-Linux platforms, the library will compile but `Ring::new()` will return an error.
+### File I/O
 
-## API Guide: Two-Tier Approach for Safety and Performance
-
-Safer-ring provides **two distinct APIs** designed for different use cases and expertise levels:
-
-### 🥇 **Tier 1: OwnedBuffer API** (Recommended for 99% of users)
-
-The **ownership transfer** approach provides maximum safety and simplicity using the "hot potato" pattern:
+For file I/O, use the `_at_owned` variants, which are ideal for sequential or random-access patterns like file copying.
 
 ```rust
 use safer_ring::{Ring, OwnedBuffer};
+# use std::os::unix::io::RawFd;
+# async fn doc_example(ring: &Ring<'_>, fd: RawFd) -> Result<(), Box<dyn std::error::Error>> {
 
-// Simple I/O with ownership transfer
-let ring = Ring::new(32)?;  // Note: ring doesn't need to be mutable!
-let buffer = OwnedBuffer::new(1024);
+let mut buffer = OwnedBuffer::new(8192);
+let mut offset = 0;
 
-let (bytes_read, buffer) = ring.read_owned(fd, buffer).await?;
-let (bytes_written, buffer) = ring.write_owned(fd, buffer).await?;
+// Read a chunk from the file
+let (bytes_read, returned_buffer) = ring.read_at_owned(fd, buffer, offset).await?;
+buffer = returned_buffer; // Reclaim ownership to reuse the buffer
 
-// For file operations with positioned I/O
-let (bytes_read, buffer) = ring.read_at_owned(fd, buffer, offset).await?;
-let (bytes_written, buffer) = ring.write_at_owned(fd, buffer, offset, len).await?;
+// Write that chunk to another file
+let (bytes_written, returned_buffer) = ring.write_at_owned(fd, buffer, offset, bytes_read).await?;
+buffer = returned_buffer; // Reclaim ownership again
+# Ok(())
+# }
 ```
 
-**✅ Benefits:**
-- **Compile-time safety**: Impossible to access buffer during I/O operations
-- **Simple composition**: Works with `tokio::join!`, `futures::select!`, etc.
-- **Memory efficient**: Single buffer can be reused across many operations
-- **No lifetime complexity**: Just pass the buffer and get it back
-- **Perfect for files**: Positioned I/O methods for file copying and random access
+### Batch Operations
 
-**📊 Performance:** Excellent (often identical to advanced API in practice)
-
-### 🥉 **Tier 2: PinnedBuffer API** (⚠️ **FLAWED DESIGN - Educational Only**)
-
-> **🚨 CRITICAL WARNING**: This API has fundamental design flaws that make it impractical for real-world use. It exists primarily for educational purposes to demonstrate why certain Rust patterns don't work with io_uring.
-
-The **advanced pinned memory** approach was designed to provide theoretical maximum performance but suffers from insurmountable lifetime constraints:
+For submitting multiple operations with a single syscall, use `Batch` with the `submit_batch_standalone` method. This returns a `Future` that does not hold a mutable borrow of the `Ring`, making it easier to compose with other async operations.
 
 ```rust
-use safer_ring::{Ring, PinnedBuffer};
+use safer_ring::{Ring, Batch, Operation, PinnedBuffer};
+use std::future::poll_fn;
+# async fn doc_example() -> Result<(), Box<dyn std::error::Error>> {
+# let mut ring = Ring::new(32)?;
+# let mut buffer1 = PinnedBuffer::with_capacity(1024);
+# let mut batch = Batch::new();
+# batch.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))?;
 
-let mut ring = Ring::new(32)?;  // Must be mutable!
+// submit_batch_standalone does not borrow the ring mutably in the future.
+let mut batch_future = ring.submit_batch_standalone(batch)?;
 
-// ❌ THIS PATTERN DOESN'T WORK - Cannot reuse buffers in loops!
-// while condition {
-//     let (bytes_read, _) = ring.read_at(fd, buffer.as_mut_slice(), offset)?.await?;
-//     // ☝️ Compiler error: cannot borrow ring as mutable more than once
-// }
+// You can still use the ring for other operations here.
 
-// ✅ Only single operations work:
-let mut buffer = PinnedBuffer::with_capacity(1024);
-let (bytes_read, _) = ring.read_at(fd, buffer.as_mut_slice(), offset)?.await?;
-// Cannot start another operation until this one completes!
+// Poll the future by providing the ring when needed.
+let batch_result = poll_fn(|cx| {
+    batch_future.poll_with_ring(&mut ring, cx)
+}).await?;
+
+println!("Batch completed with {} results.", batch_result.results.len());
+# Ok(())
+# }
 ```
 
-### 🚨 **Critical Limitations**
+### Tokio `AsyncRead`/`AsyncWrite` Compatibility
 
-**The PinnedBuffer API cannot be used for practical applications due to fundamental Rust lifetime constraints:**
+For easy integration with existing code, `safer-ring` provides a compatibility layer. Note that this layer introduces memory copies and has higher overhead than the native `_owned` API.
 
-1. **❌ No Buffer Reuse**: The `&'a mut Ring<'a>` signature makes it impossible to reuse buffers across operations in loops
-2. **❌ Allocation Hell**: Each operation requires creating new PinnedBuffer instances (defeating zero-copy goals)
-3. **❌ No Loops**: Standard loop patterns fail to compile due to borrow checker conflicts  
-4. **❌ No Recursion Fix**: Even recursive patterns fail due to persistent lifetime borrows
-5. **❌ Sequential Only**: `&mut Ring` prevents any concurrent operations on the same Ring instance
-
-**Why This Happens:**
 ```rust
-// The root cause: this signature creates persistent borrows
-pub fn read_at<'buf>(&'ring mut self, ...) where 'buf: 'ring
-//                    ^^^^^^^^^^^ borrows ring for entire 'ring lifetime
+use safer_ring::{Ring, compat::AsyncCompat};
+use tokio::io::AsyncReadExt;
+# async fn doc_example() -> Result<(), Box<dyn std::error::Error>> {
+# let ring = Ring::new(32)?;
+# let fd = 0;
+// Wrap a file descriptor in a Tokio-compatible type
+let mut file_reader = ring.file(fd);
+
+let mut buffer = vec![0; 1024];
+let bytes_read = file_reader.read(&mut buffer).await?;
+# Ok(())
+# }
 ```
 
-**⚠️ Complexity Trade-offs:**
-- **Lifetime management**: Complex buffer lifetime requirements **that cannot be satisfied in loops**
-- **Sequential operations**: `&mut Ring` prevents concurrent operations on same Ring
-- **Composition issues**: Cannot use `tokio::join!`, `futures::select!`, or any standard async patterns
-- **Allocation overhead**: Requires new buffer allocations for each operation (worse than OwnedBuffer)
-- **Expert knowledge required**: Deep understanding of Rust lifetimes and async (but still doesn't work)
+## A Note on the `PinnedBuffer` API
 
-**📊 Performance:** Terrible in practice due to constant allocations, significantly worse than OwnedBuffer
+You may see a `PinnedBuffer` type and methods like `read()` or `write()` in the codebase.
 
-### 🌐 **AsyncRead/AsyncWrite Compatibility** (Migration path)
-```rust
-use safer_ring::compat::AsyncCompat;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+**This API is considered educational and is not suitable for practical use.** It suffers from fundamental lifetime constraints in Rust that make it impossible to use in loops or for concurrent operations on the same `Ring` instance. It exists to demonstrate the complexities that the `OwnedBuffer` model successfully solves. For all applications, please use the `OwnedBuffer` API.
 
-let ring = Ring::new(32)?;
-let mut file = ring.file(fd);
+## Platform Support
 
-let mut buffer = vec![0u8; 1024];
-let bytes_read = file.read(&mut buffer).await?; // Drop-in tokio replacement
-```
+This library is designed for Linux systems that support `io_uring`.
 
-### 🎯 **API Selection Guide**
+-   **Minimum Kernel**: Linux 5.1
+-   **Recommended Kernel**: Linux 5.19+ (for advanced features like multi-shot operations)
+-   **Optimal Kernel**: Linux 6.0+ (for the latest performance improvements)
 
-| Use Case | Recommended API | Why |
-|----------|----------------|-----|
-| **New applications** | 🥇 OwnedBuffer | Simple, safe, excellent performance |
-| **File I/O operations** | 🥇 OwnedBuffer (`*_at_owned`) | Perfect for positioned reads/writes |
-| **Learning io_uring** | 🥇 OwnedBuffer | Focus on concepts, not lifetime complexity |
-| **Migrating from tokio** | 🌐 AsyncCompat | Minimal code changes required |
-| **Understanding Rust limitations** | 🥉 PinnedBuffer | Educational only - shows what NOT to do |
-| **Production applications** | ❌ **Never PinnedBuffer** | **API is fundamentally broken** |
+On non-Linux platforms, the library compiles with stub implementations, but creating a `Ring` will return an `Unsupported` error at runtime.
 
-### 📈 **Performance Reality Check**
+## Getting Started
 
-Based on analysis of the fundamental API constraints:
-
-- **OwnedBuffer reuse**: Excellent performance through efficient buffer reuse
-- **PinnedBuffer allocations**: **Terrible performance** due to constant new buffer allocations per operation
-- **Memory efficiency**: **OwnedBuffer uses dramatically fewer allocations** since it can reuse the same buffer
-- **Development time**: OwnedBuffer saves weeks of debugging lifetime issues that have no solution
-- **Maintainability**: OwnedBuffer code is dramatically easier to understand
-
-**The Truth About "Theoretical Performance":**
-- PinnedBuffer was supposed to be "zero-copy" but requires copying data out of returned slices anyway
-- PinnedBuffer cannot reuse buffers, requiring new allocations for each operation
-- OwnedBuffer achieves actual zero-copy through ownership transfer AND enables buffer reuse
-- **In practice, PinnedBuffer is consistently slower and uses more memory than OwnedBuffer**
-
-**Bottom line:** Always use OwnedBuffer. PinnedBuffer exists only to demonstrate why this API design doesn't work.
-
-## Project Status
-
-**Current State**: Feature-complete with production-ready safety features
-
-✅ **Completed**
-- Core safety model with ownership transfer
-- Type-state machine preventing invalid operations  
-- Comprehensive compile-fail tests (24 tests)
-- AsyncRead/AsyncWrite compatibility layer
-- Buffer pooling and management
-- Batch operations (core functionality)
-- Cross-platform support (Linux + stubs)
-
-⚠️ **Known Limitations**
-- Batch operation integration tests have API ergonomics issues (core functionality works)
-- Some advanced io_uring features not yet exposed (buffer selection, etc.)
-
-🎯 **Recommended for**
-- Production applications requiring memory safety
-- High-performance async I/O workloads
-- Existing tokio codebases (via compatibility layer)
-
-## Building
+### Building
 
 ```bash
 cargo build
 ```
 
-## Testing
+### Testing
+
+The library includes an extensive test suite, including compile-fail tests that verify safety invariants at compile time.
 
 ```bash
 cargo test
 ```
 
-## Examples
+## Further Resources
 
-See the `examples/` directory for comprehensive usage examples:
-
-### 🎓 **Learning Examples**
-- **`async_demo.rs`** - Comprehensive async/await patterns and batch operations
-- **`safer_ring_demo.rs`** - Core safety features demonstration
-
-### 🌐 **Network Examples**  
-- **`echo_server.rs`** - High-performance TCP echo server
-
-### 📁 **File I/O Examples**
-- **`file_copy.rs`** - **[Recommended]** File copying using OwnedBuffer API (simple & safe)
-- **`file_copy_advanced.rs`** - **[⚠️ Educational Only]** Demonstrates PinnedBuffer API limitations and why it doesn't work
-
-### 📊 **API Demonstration**
-The file copy examples demonstrate why OwnedBuffer is the only practical choice:
-- **`file_copy.rs`**: ~50 lines of simple, safe code using OwnedBuffer with excellent performance
-- **`file_copy_advanced.rs`**: **DOES NOT COMPILE ON LINUX** - demonstrates PinnedBuffer API limitations (excluded from builds)
-
-**Key Insight**: PinnedBuffer cannot reuse buffers and requires constant allocations, making it both more complex AND slower than OwnedBuffer in practice.
-
-### Quick Start
-```bash
-# Run the comprehensive async demo (works on all platforms)
-cargo run --example async_demo
-
-# Run with real file I/O on Linux
-cargo run --example async_demo -- --with-files
-
-# Run TCP echo server
-cargo run --example echo_server
-```
-
-### Basic Usage
-```rust
-use safer_ring::{Ring, OwnedBuffer};
-
-#[tokio::main]  
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ring = Ring::new(32)?;  // Note: doesn't need to be mutable!
-    let buffer = OwnedBuffer::new(1024);
-    
-    // Safe read with ownership transfer
-    let (bytes_read, buffer) = ring.read_owned(fd, buffer).await?;
-    println!("Read {} bytes", bytes_read);
-    
-    // For positioned file I/O (perfect for file copying)
-    let (bytes_written, buffer) = ring.write_at_owned(fd, buffer, offset, bytes_read).await?;
-    println!("Wrote {} bytes at offset {}", bytes_written, offset);
-    
-    // Buffer is safely returned and can be reused efficiently
-    Ok(())
-}
-```
-
-
-## When to Use Safer-Ring
-
-### ✅ Choose Safer-Ring When:
-- **Memory safety is critical** - Zero tolerance for use-after-free bugs
-- **Integrating with existing tokio code** - AsyncRead/AsyncWrite compatibility
-- **Learning io_uring safely** - Comprehensive examples and safety guarantees
-- **High-performance async I/O** - Need io_uring performance with Rust safety
-- **Batch operations** - Multiple I/O operations per syscall
-
-### 🤔 Consider Alternatives When:
-- **Maximum raw performance needed** - Direct unsafe io_uring may be faster
-- **Stack-allocated buffers required** - Fundamental limitation of completion-based I/O
-- **Very simple use cases** - tokio's thread-pool I/O might be sufficient
-- **Non-Linux platforms** - io_uring is Linux-specific
-
-### Performance Characteristics
-- **~10% overhead vs raw io_uring** for comprehensive safety guarantees
-- **Significant improvement vs thread-pool I/O** for high-concurrency workloads
-- **Zero runtime overhead** for safety checks (all compile-time)
-
-## Design Philosophy
-
-This library embraces **"if it compiles, it's safe"** over **"if it compiles, it might panic"**. We believe that:
-
-1. **Memory safety should not be optional** in production Rust code
-2. **Ownership patterns are powerful** when embraced rather than fought
-3. **Compile-time guarantees** are better than runtime checks
-4. **Ergonomic APIs** don't require sacrificing safety
-
-The result is an io_uring wrapper that feels natural to Rust developers while providing the performance benefits of completion-based I/O.
-
-
-## Further Reading
-
-### Related Articles & Discussions
-- [io_uring, KTLS and Rust for zero syscall HTTPS server](https://blog.habets.se/2025/04/io-uring-ktls-and-rust-for-zero-syscall-https-server.html)
-- [Hacker News Discussion](https://news.ycombinator.com/item?id=44980865)  
-- [Boats' Blog: io_uring and completion-based APIs](https://boats.gitlab.io/blog/post/io-uring/)
-
-### Architecture Documentation
-- [`docs/DESIGN.md`](docs/DESIGN.md) - Detailed architecture and safety model
-- [`CLAUDE.md`](CLAUDE.md) - Development guide and component overview
-- [`src/lib.rs`](src/lib.rs) - API documentation with examples
+-   **`docs/API.md`**: A comprehensive cheat sheet and reference for the public API.
+-   **`examples/` Directory**: Contains practical, runnable examples showcasing various features.
+    -   `safer_ring_demo.rs`: A high-level tour of the library's safety features.
+    -   `file_copy.rs`: A complete file-copy utility demonstrating the `OwnedBuffer` pattern.
+    -   `echo_server_main.rs`: A TCP echo server.
+    -   `async_demo.rs`: A showcase of various asynchronous patterns.
 
 ## Contributing
 
-We welcome contributions! Please see:
-- Issues for bugs and feature requests
-- Pull requests for improvements
-- Documentation updates
-- Example contributions
+Contributions are welcome. Please feel free to open an issue for bug reports and feature requests, or submit a pull request.
 
 ## License
 
-Licensed under either of
-
- * MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
- * Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-
-at your option.
+This project is licensed under either of the [MIT license](LICENSE) or Apache License, Version 2.0, at your option.
