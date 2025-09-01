@@ -269,6 +269,8 @@ impl SaferRingConfig {
                 sq_thread_cpu: Some(0),
                 coop_taskrun: true,
                 defer_taskrun: true,
+                // Default all new features to false for high throughput config
+                ..Default::default()
             },
             error_handling: ErrorHandlingConfig {
                 auto_retry: false,
@@ -335,6 +337,8 @@ impl SaferRingConfig {
                 sq_thread_cpu: None,
                 coop_taskrun: true,
                 defer_taskrun: true,
+                // Default all new features to false for development config
+                ..Default::default()
             },
             error_handling: ErrorHandlingConfig {
                 auto_retry: true,

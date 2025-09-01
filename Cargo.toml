@@ -57,6 +57,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 pprof = { version = "0.14", features = ["criterion", "flamegraph"] }
 jemallocator = "0.5"
 num_cpus = "1.16"
+chrono = { version = "0.4", features = ["serde"] }
 
 [features]
 default = []
@@ -106,6 +107,10 @@ path = "examples/async_demo.rs"
 
 [[bench]]
 name = "simple_benchmarks"
+harness = false
+
+[[bench]]
+name = "comparative_benchmarks"
 harness = false
 
 # Note: Some benchmarks disabled due to API changes - will be updated in future releases

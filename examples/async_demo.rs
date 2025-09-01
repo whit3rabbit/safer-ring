@@ -285,9 +285,7 @@ async fn run_concurrent_demo(
             simulate_async_work("Task 3", 25)
         );
 
-        println!(
-            "      ✅ Concurrent simulation tasks: {result1:?}, {result2:?}, {result3:?}"
-        );
+        println!("      ✅ Concurrent simulation tasks: {result1:?}, {result2:?}, {result3:?}");
     }
 
     println!("      ⏱️  Total time: {:?}", start_time.elapsed());
@@ -518,9 +516,7 @@ async fn run_buffer_pool_async_demo(
         }
     }
 
-    println!(
-        "   📊 Pool async results: {successful} successful, {failed} failed"
-    );
+    println!("   📊 Pool async results: {successful} successful, {failed} failed");
 
     // Show final pool statistics
     let pool_stats = pool.stats();

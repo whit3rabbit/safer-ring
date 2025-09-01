@@ -115,3 +115,14 @@ Safer-Ring is a safe Rust wrapper around io_uring that provides zero-cost abstra
 2. WHEN performing file operations THEN the system SHALL provide an example showing zero-copy file copying
 3. WHEN building HTTPS servers THEN the system SHALL provide an example showing kTLS integration
 4. WHEN using buffer pools THEN the system SHALL provide examples showing efficient buffer reuse patterns
+
+### Requirement 11: Comparative Performance Benchmarks
+
+**User Story:** As a developer evaluating safer-ring, I want detailed performance comparisons between safer-ring and raw io_uring implementations, so that I can understand the performance characteristics and overhead of the safety abstractions.
+
+#### Acceptance Criteria
+
+1. WHEN running comparative benchmarks THEN the system SHALL measure and report file copy performance using existing examples/file_copy.rs as the safer-ring implementation baseline
+2. WHEN running network benchmarks THEN the system SHALL measure and report network I/O speeds using existing examples/echo_server_main.rs as the safer-ring implementation baseline
+3. WHEN benchmarks complete THEN the system SHALL log the kernel version, timing differences, and throughput comparisons with statistical analysis
+4. WHEN performance differences are detected THEN the system SHALL output percentage overhead and absolute timing differences with confidence intervals and significance testing
