@@ -1,7 +1,7 @@
 //! io_uring backend implementation.
 
 use std::io;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::pin::Pin;
 
 use crate::backend::Backend;
@@ -237,6 +237,17 @@ impl Backend for IoUringBackend {
         let ready = cq.len();
         (ready, capacity)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl AsRawFd for IoUringBackend {
+    fn as_raw_fd(&self) -> RawFd {
+        self.ring.as_raw_fd()
+    }
 }
 
 /// Stub implementation for non-Linux platforms.
@@ -340,5 +351,9 @@ impl Backend for IoUringBackend {
 
     fn completion_queue_stats(&mut self) -> (usize, usize) {
         (0, 0)
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }

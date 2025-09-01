@@ -35,10 +35,9 @@ pub mod linux {
 
             // Direct submission without safety checks for maximum performance
             unsafe {
-                let mut sq = self.ring.submission();
-                let sqe = sq.next_sqe().expect("submission queue full");
-                read_e.build().user_data(0x42).write_to(sqe);
-                sq.sync();
+                let entry = read_e.build().user_data(0x42);
+                self.ring.submission().push(&entry)
+                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "submission queue full"))?;
             }
 
             self.ring.submit_and_wait(1)?;
@@ -66,10 +65,9 @@ pub mod linux {
                 opcode::Write::new(types::Fd(fd), buf.as_ptr(), buf.len() as u32).offset(offset);
 
             unsafe {
-                let mut sq = self.ring.submission();
-                let sqe = sq.next_sqe().expect("submission queue full");
-                write_e.build().user_data(0x43).write_to(sqe);
-                sq.sync();
+                let entry = write_e.build().user_data(0x43);
+                self.ring.submission().push(&entry)
+                    .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "submission queue full"))?;
             }
 
             self.ring.submit_and_wait(1)?;

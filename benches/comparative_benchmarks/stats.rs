@@ -97,17 +97,17 @@ impl PerformanceStats {
         let (p50, p95, p99) = self.calculate_percentiles();
 
         println!("\n📈 {} Detailed Statistics:", label);
-        println!("   Operations: {}", self.operations);
+        println!("   Operations: {}", self.operations());
         println!("   Throughput: {:.2} MB/s", self.throughput_mbps());
         println!("   Avg Latency: {:.2} μs", self.avg_latency_us());
         println!("   P50 Latency: {:?}", p50);
         println!("   P95 Latency: {:?}", p95);
         println!("   P99 Latency: {:?}", p99);
 
-        if let Some(min) = self.min_time {
+        if let Some(min) = self.min_time() {
             println!("   Min Operation: {:?}", min);
         }
-        if let Some(max) = self.max_time {
+        if let Some(max) = self.max_time() {
             println!("   Max Operation: {:?}", max);
         }
     }

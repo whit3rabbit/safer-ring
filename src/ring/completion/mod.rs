@@ -124,25 +124,60 @@ impl<'ring> Ring<'ring> {
     /// Returns an error if the operation ID is not recognized or if there's
     /// a system error while checking completions.
     pub fn try_complete_by_id(&mut self, operation_id: u64) -> Result<Option<io::Result<i32>>> {
-        // Use the backend to check for completions
-        let completions = self.backend.borrow_mut().try_complete()?;
+        // Track polling for debugging  
+        static POLL_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let count = POLL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if count % 1000 == 0 {
+            eprintln!("[DEBUG] try_complete_by_id called {count} times for op {operation_id}");
+        }
+        
+        // First check the completion cache
+        {
+            let mut cache = self.completion_cache.borrow_mut();
+            if let Some(result) = cache.remove(&operation_id) {
+                // Found in cache, remove from tracker and return
+                let mut tracker = self.operations.borrow_mut();
+                tracker.complete_operation(operation_id);
+                self.waker_registry.wake_operation(operation_id);
+                return Ok(Some(result));
+            }
+        }
+
+        // Not in cache, try blocking wait instead of busy polling
+        let completions = if count > 50 {
+            // After many polls with no result, wait for completion
+            self.backend.borrow_mut().wait_for_completion().unwrap_or_else(|_| {
+                // If wait fails (e.g., no operations), fall back to try_complete
+                self.backend.borrow_mut().try_complete().unwrap_or_default()
+            })
+        } else {
+            // First few attempts use try_complete
+            self.backend.borrow_mut().try_complete()?
+        };
 
         let mut target_result = None;
 
-        // Process all completions to avoid losing any
+        // Process all completions
         {
             let mut tracker = self.operations.borrow_mut();
+            let mut cache = self.completion_cache.borrow_mut();
+            
             for (completed_id, result) in completions {
-                // Remove completed operation from tracking
-                if let Some(_handle) = tracker.complete_operation(completed_id) {
-                    // Wake up any future waiting for this operation
-                    self.waker_registry.wake_operation(completed_id);
-
-                    // If this is the operation we're looking for, save the result
+                // Check if this operation is being tracked
+                if tracker.is_operation_tracked(completed_id) {
                     if completed_id == operation_id {
+                        // This is the one we're looking for - complete it immediately
+                        tracker.complete_operation(completed_id);
+                        self.waker_registry.wake_operation(completed_id);
                         target_result = Some(result);
+                    } else {
+                        // Cache this completion for later retrieval
+                        cache.insert(completed_id, result);
+                        // Wake up the future that might be waiting
+                        self.waker_registry.wake_operation(completed_id);
                     }
                 }
+                // Ignore completions for untracked operations (orphans)
             }
         }
 
@@ -168,14 +203,34 @@ impl<'ring> Ring<'ring> {
     /// Internal method that handles the actual completion processing logic.
     /// Can operate in blocking or non-blocking mode.
     fn process_completion_queue(&mut self, wait: bool) -> Result<Vec<CompletionResult<'ring, '_>>> {
-        let completed_operations = if wait {
-            self.backend.borrow_mut().wait_for_completion()?
+        // First check if we have any cached completions
+        let mut cached_completions = Vec::new();
+        {
+            let mut cache = self.completion_cache.borrow_mut();
+            if !cache.is_empty() {
+                // Drain all cached completions
+                cached_completions = cache.drain().collect();
+            }
+        }
+
+        // Get new completions from backend if needed
+        let backend_completions = if wait || cached_completions.is_empty() {
+            if wait {
+                self.backend.borrow_mut().wait_for_completion()?
+            } else {
+                self.backend.borrow_mut().try_complete()?
+            }
         } else {
-            self.backend.borrow_mut().try_complete()?
+            // We have cached completions, don't poll backend unless waiting
+            Vec::new()
         };
 
-        // Remove completed operations from tracking
-        self.process_completed_operations(completed_operations)
+        // Combine cached and new completions
+        let mut all_completions = cached_completions;
+        all_completions.extend(backend_completions);
+
+        // Process all completions
+        self.process_completed_operations(all_completions)
     }
 
     /// Convert a completion queue entry result to an io::Result.

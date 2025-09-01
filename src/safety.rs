@@ -61,6 +61,14 @@ pub trait CompletionChecker: Sync {
         &self,
         submission_id: SubmissionId,
     ) -> Result<Option<std::io::Result<i32>>>;
+
+    /// Check if this completion checker supports efficient async waiting.
+    ///
+    /// Returns true if the completion checker has AsyncFd integration
+    /// and can efficiently wait for completions without polling.
+    fn supports_async_wait(&self) -> bool {
+        false // Default implementation for compatibility
+    }
 }
 
 /// An operation that can be safely cancelled without causing memory safety issues.
@@ -245,22 +253,38 @@ impl<'ring> std::future::Future for SafeOperationFuture<'ring> {
                         ))
                     })?;
 
+                    // Remove waker from registry since operation is complete
+                    self.waker_registry.remove_waker(operation.submission_id);
+
                     let bytes_transferred = completion_result.map_err(SaferRingError::Io)?;
                     Poll::Ready(Ok((bytes_transferred as usize, buffer)))
                 }
                 Ok(None) => {
-                    // Operation still pending - store operation back and register waker
+                    // Operation still pending - use simple async retry approach
                     let submission_id = operation.submission_id;
                     self.operation = Some(operation);
 
-                    // Register the waker so it gets notified when the operation completes
-                    self.waker_registry
-                        .register_waker(submission_id, cx.waker().clone());
+                    // Register waker for when completion processing discovers this operation
+                    self.waker_registry.register_waker(submission_id, cx.waker().clone());
+
+                    // Spawn a task that triggers completion processing after a short delay
+                    // This ensures progress even when no other futures are being polled
+                    let waker = cx.waker().clone();
+                    tokio::spawn(async move {
+                        // Small delay to batch operations and reduce CPU usage
+                        // Small delay using yield to batch operations and reduce CPU usage
+                        for _ in 0..3 {
+                            tokio::task::yield_now().await;
+                        }
+                        // Wake up this future to retry - completion processing will run
+                        waker.wake();
+                    });
 
                     Poll::Pending
                 }
                 Err(e) => {
-                    // Error checking for completion
+                    // Error checking for completion - remove waker
+                    self.waker_registry.remove_waker(operation.submission_id);
                     Poll::Ready(Err(e))
                 }
             }
@@ -325,22 +349,38 @@ impl<'ring> std::future::Future for SafeAcceptFuture<'ring> {
                         ))
                     })?;
 
+                    // Remove waker from registry since operation is complete
+                    self.waker_registry.remove_waker(operation.submission_id);
+
                     let bytes_transferred = completion_result.map_err(SaferRingError::Io)?;
                     Poll::Ready(Ok((bytes_transferred as usize, buffer)))
                 }
                 Ok(None) => {
-                    // Operation still pending - store operation back and register waker
+                    // Operation still pending - use simple async retry approach  
                     let submission_id = operation.submission_id;
                     self.operation = Some(operation);
 
-                    // Register the waker so it gets notified when the operation completes
-                    self.waker_registry
-                        .register_waker(submission_id, cx.waker().clone());
+                    // Register waker for when completion processing discovers this operation
+                    self.waker_registry.register_waker(submission_id, cx.waker().clone());
+
+                    // Spawn a task that triggers completion processing after a short delay
+                    // This ensures progress even when no other futures are being polled
+                    let waker = cx.waker().clone();
+                    tokio::spawn(async move {
+                        // Small delay to batch operations and reduce CPU usage
+                        // Small delay using yield to batch operations and reduce CPU usage
+                        for _ in 0..3 {
+                            tokio::task::yield_now().await;
+                        }
+                        // Wake up this future to retry - completion processing will run
+                        waker.wake();
+                    });
 
                     Poll::Pending
                 }
                 Err(e) => {
-                    // Error checking for completion
+                    // Error checking for completion - remove waker
+                    self.waker_registry.remove_waker(operation.submission_id);
                     Poll::Ready(Err(e))
                 }
             }

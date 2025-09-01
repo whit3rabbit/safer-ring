@@ -85,6 +85,11 @@ impl<'ring> OperationTracker<'ring> {
         self.in_flight.remove(&id)
     }
 
+    /// Check if an operation is currently tracked.
+    pub(crate) fn is_operation_tracked(&self, id: u64) -> bool {
+        self.in_flight.contains_key(&id)
+    }
+
     /// Get the number of operations currently in flight.
     pub(crate) fn count(&self) -> usize {
         self.in_flight.len()

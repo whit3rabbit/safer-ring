@@ -1,6 +1,6 @@
 //! Detailed performance analysis with comprehensive statistics.
 
-use criterion::{black_box, Criterion, Throughput};
+use criterion::{Criterion, Throughput};
 use safer_ring::{OwnedBuffer, Ring};
 use std::os::unix::io::AsRawFd;
 use std::time::{Duration, Instant};
@@ -22,9 +22,8 @@ pub fn bench_detailed_performance_analysis(c: &mut Criterion) {
     let rt = Runtime::new().expect("Failed to create tokio runtime");
     let mut group = c.benchmark_group("detailed_analysis");
 
-    // Use fewer samples for detailed analysis to reduce benchmark time
-    // while still providing meaningful statistics
-    group.sample_size(config::SAMPLE_SIZE / 2);
+    // Use more samples for detailed analysis to provide better statistics
+    group.sample_size(config::DETAILED_SAMPLE_SIZE);
 
     // Focus on 1MB files for faster testing while maintaining representativeness
     let file_size = 1024 * 1024;

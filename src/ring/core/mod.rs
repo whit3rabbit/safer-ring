@@ -1,7 +1,10 @@
 //! Core Ring implementation with lifetime management.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::io;
 use std::marker::PhantomData;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Mutex};
 
 use crate::backend::{detect_backend, Backend};
@@ -10,6 +13,27 @@ use crate::future::WakerRegistry;
 use crate::operation::tracker::OperationTracker;
 use crate::operation::{Building, Operation};
 use crate::safety::{CompletionChecker, OrphanTracker, SubmissionId};
+
+#[cfg(target_os = "linux")]
+use tokio::io::unix::AsyncFd;
+
+// Helper struct for AsyncFd integration
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+pub(super) struct RawFdWrapper(RawFd);
+
+#[cfg(target_os = "linux")]
+impl AsRawFd for RawFdWrapper {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0
+    }
+}
+
+// SAFETY: We manually ensure that access to this fd is safe because the parent Ring is !Sync.
+#[cfg(target_os = "linux")]
+unsafe impl Send for RawFdWrapper {}
+#[cfg(target_os = "linux")]
+unsafe impl Sync for RawFdWrapper {}
 
 // Re-export module implementations
 
@@ -253,6 +277,14 @@ pub struct Ring<'ring> {
     pub(super) waker_registry: Arc<WakerRegistry>,
     // Orphan tracker for cancelled operations safety
     pub(super) orphan_tracker: Arc<Mutex<OrphanTracker>>,
+    // Completion cache to avoid repeated backend polling
+    pub(super) completion_cache: RefCell<HashMap<u64, io::Result<i32>>>,
+    
+    // AsyncFd integration for proper reactor integration
+    #[cfg(target_os = "linux")]
+    pub(super) async_fd: Option<AsyncFd<RawFdWrapper>>,
+    #[cfg(not(target_os = "linux"))]
+    pub(super) async_fd: Option<()>, // Placeholder for non-Linux
 }
 
 impl<'ring> std::fmt::Debug for Ring<'ring> {
@@ -286,6 +318,26 @@ impl<'ring> Ring<'ring> {
         }
 
         let backend = detect_backend(entries)?;
+        
+        // Try to setup AsyncFd integration for Linux only if we're in a tokio context
+        #[cfg(target_os = "linux")]
+        let async_fd = {
+            // Check if we're in a tokio runtime context before creating AsyncFd
+            if tokio::runtime::Handle::try_current().is_ok() {
+                // Try to get the io_uring fd if we're using the io_uring backend
+                if let Some(io_uring_backend) = backend.as_any().downcast_ref::<crate::backend::io_uring::IoUringBackend>() {
+                    let fd = io_uring_backend.as_raw_fd();
+                    AsyncFd::new(RawFdWrapper(fd)).ok()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        
+        #[cfg(not(target_os = "linux"))]
+        let async_fd = None;
 
         Ok(Self {
             backend: RefCell::new(backend),
@@ -293,6 +345,8 @@ impl<'ring> Ring<'ring> {
             operations: RefCell::new(OperationTracker::new()),
             waker_registry: Arc::new(WakerRegistry::new()),
             orphan_tracker: Arc::new(Mutex::new(OrphanTracker::new())),
+            completion_cache: RefCell::new(HashMap::new()),
+            async_fd,
         })
     }
 
@@ -425,6 +479,23 @@ impl<'ring> CompletionChecker for Ring<'ring> {
         &self,
         submission_id: SubmissionId,
     ) -> Result<Option<std::io::Result<i32>>> {
+        // First check cache to avoid unnecessary backend polling
+        {
+            let cache = self.completion_cache.borrow();
+            if let Some(cached_result) = cache.get(&submission_id) {
+                // Found in cache - return cloned result
+                let result = match cached_result {
+                    Ok(bytes) => Ok(*bytes),
+                    Err(e) => Err(std::io::Error::new(e.kind(), format!("{e}"))),
+                };
+                drop(cache);
+                
+                // Remove from cache after returning
+                self.completion_cache.borrow_mut().remove(&submission_id);
+                return Ok(Some(result));
+            }
+        }
+
         // Check the backend for completions
         let completions = self.backend.borrow_mut().try_complete()?;
 
@@ -453,13 +524,21 @@ impl<'ring> CompletionChecker for Ring<'ring> {
                 }
                 drop(orphan_tracker);
             } else {
-                // Handle other completed operations
+                // Handle other completed operations - cache them for later
+                let cached_result = match &result {
+                    Ok(bytes) => Ok(*bytes),
+                    Err(e) => Err(std::io::Error::new(e.kind(), format!("{e}"))),
+                };
+                self.completion_cache.borrow_mut().insert(completed_id, cached_result);
+                
                 let mut orphan_tracker = self.orphan_tracker.lock().unwrap();
                 if let Some((orphaned_buffer, _operation_result)) =
                     orphan_tracker.handle_completion(completed_id, result)
                 {
                     // This was an orphaned operation - the buffer is cleaned up automatically
                     drop(orphaned_buffer);
+                    // Remove from cache since it was orphaned
+                    self.completion_cache.borrow_mut().remove(&completed_id);
                 } else {
                     // This was an active operation - wake its future
                     drop(orphan_tracker);
@@ -470,5 +549,87 @@ impl<'ring> CompletionChecker for Ring<'ring> {
 
         // Return result for the target submission ID if found
         Ok(target_result)
+    }
+
+    fn supports_async_wait(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            self.async_fd.is_some()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
+        }
+    }
+}
+
+impl<'ring> Ring<'ring> {
+    /// Asynchronously wait for a specific operation to complete.
+    ///
+    /// This method integrates with tokio's reactor to provide true async I/O
+    /// instead of busy-wait polling. It uses AsyncFd to register the io_uring
+    /// file descriptor with tokio's event loop for efficient completion notification.
+    ///
+    /// # Arguments
+    ///
+    /// * `submission_id` - ID of the operation to wait for
+    ///
+    /// # Returns
+    ///
+    /// Returns the completion result when the operation finishes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The operation was not found (already completed or invalid ID)
+    /// - Backend polling fails
+    /// - AsyncFd integration is not available (non-Linux platforms)
+    #[cfg(target_os = "linux")]
+    pub async fn await_completion(&mut self, submission_id: u64) -> Result<io::Result<i32>> {
+        loop {
+            // First check if completion is already available
+            if let Some(result) = self.try_complete_by_id(submission_id)? {
+                return Ok(result);
+            }
+
+            // If we have AsyncFd integration, use it for proper async waiting
+            if let Some(async_fd) = &self.async_fd {
+                // Wait for the io_uring fd to become readable (indicating completions are available)
+                match async_fd.readable().await {
+                    Ok(mut guard) => {
+                        // Clear the ready state so we can wait again if needed
+                        guard.clear_ready();
+                        
+                        // Try to complete operations now that the kernel signaled readiness
+                        if let Some(result) = self.try_complete_by_id(submission_id)? {
+                            return Ok(result);
+                        }
+                        // Continue loop if our specific operation wasn't completed yet
+                    }
+                    Err(e) => {
+                        return Err(SaferRingError::Io(e));
+                    }
+                }
+            } else {
+                // Fallback to polling with yielding for non-io_uring backends
+                tokio::task::yield_now().await;
+                if let Some(result) = self.try_complete_by_id(submission_id)? {
+                    return Ok(result);
+                }
+            }
+        }
+    }
+
+    /// Asynchronously wait for completion on non-Linux platforms.
+    ///
+    /// This is a stub implementation that falls back to polling with yielding.
+    #[cfg(not(target_os = "linux"))]
+    pub async fn await_completion(&mut self, submission_id: u64) -> Result<io::Result<i32>> {
+        loop {
+            if let Some(result) = self.try_complete_by_id(submission_id)? {
+                return Ok(result);
+            }
+            tokio::task::yield_now().await;
+        }
     }
 }

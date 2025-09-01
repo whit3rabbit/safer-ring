@@ -257,6 +257,10 @@ impl Backend for EpollBackend {
         // Epoll doesn't have a completion queue, return pending operations count
         (self.pending_operations.len(), 1024)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(target_os = "linux")]

@@ -1,6 +1,7 @@
 //! Configuration methods for Ring initialization.
 
-use super::Ring;
+use super::{Ring, RawFdWrapper};
+use crate::backend::Backend;
 use crate::error::Result;
 #[cfg(not(target_os = "linux"))]
 use crate::error::SaferRingError;
@@ -12,6 +13,12 @@ use crate::operation::tracker::OperationTracker;
 use crate::safety::OrphanTracker;
 #[cfg(target_os = "linux")]
 use std::cell::RefCell;
+#[cfg(target_os = "linux")]
+use std::os::unix::io::AsRawFd;
+#[cfg(target_os = "linux")]
+use tokio::io::unix::AsyncFd;
+#[cfg(target_os = "linux")]
+use std::collections::HashMap;
 #[cfg(target_os = "linux")]
 use std::marker::PhantomData;
 #[cfg(target_os = "linux")]
@@ -108,14 +115,38 @@ impl<'ring> Ring<'ring> {
                 ),
             );
 
+            let backend = Box::new(crate::backend::io_uring::IoUringBackend::new(
+                config.ring.sq_entries,
+            )?);
+            
+            // Try to setup AsyncFd integration for Linux only if we're in a tokio context
+            #[cfg(target_os = "linux")]
+            let async_fd = {
+                // Check if we're in a tokio runtime context before creating AsyncFd
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    // Try to get the io_uring fd if we're using the io_uring backend
+                    if let Some(io_uring_backend) = backend.as_any().downcast_ref::<crate::backend::io_uring::IoUringBackend>() {
+                        let fd = io_uring_backend.as_raw_fd();
+                        AsyncFd::new(RawFdWrapper(fd)).ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+            
+            #[cfg(not(target_os = "linux"))]
+            let async_fd = None;
+
             Ok(Self {
-                backend: RefCell::new(Box::new(crate::backend::io_uring::IoUringBackend::new(
-                    config.ring.sq_entries,
-                )?)),
+                backend: RefCell::new(backend),
                 phantom: PhantomData,
                 operations: RefCell::new(OperationTracker::new()),
                 waker_registry: Arc::new(WakerRegistry::new()),
                 orphan_tracker: Arc::new(Mutex::new(OrphanTracker::new())),
+                completion_cache: RefCell::new(HashMap::new()),
+                async_fd,
             })
         }
 

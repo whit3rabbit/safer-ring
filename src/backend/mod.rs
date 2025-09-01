@@ -227,6 +227,12 @@ pub trait Backend {
     /// For backends without explicit completion queues, returns
     /// reasonable approximations based on pending operations.
     fn completion_queue_stats(&mut self) -> (usize, usize);
+
+    /// Get a reference to the backend as Any for downcasting.
+    ///
+    /// This allows safe downcasting to specific backend types for
+    /// specialized functionality like AsyncFd integration.
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Detect the best available backend for the current system.

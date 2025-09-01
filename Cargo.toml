@@ -111,6 +111,7 @@ harness = false
 
 [[bench]]
 name = "comparative_benchmarks"
+path = "benches/comparative_benchmarks_main.rs"
 harness = false
 
 # Note: Some benchmarks disabled due to API changes - will be updated in future releases
