@@ -1,6 +1,6 @@
 [package]
 name = "safer-ring"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 authors = ["whit3rabbit"]
 description = "A safe Rust wrapper around io_uring with zero-cost abstractions and compile-time memory safety guarantees"
