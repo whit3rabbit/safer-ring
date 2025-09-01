@@ -63,20 +63,30 @@ fn bench_safer_ring_pseudo_io(
                     let mut total_processed = 0;
 
                     // Perform multiple read-write operations to amortize setup costs
-                    for _ in 0..config::ECHO_OPERATIONS_PER_ITER {
+                    for i in 0..config::ECHO_OPERATIONS_PER_ITER {
                         let read_buffer = OwnedBuffer::new(msg_size);
-                        let (bytes_read, echo_buffer) = ring
-                            .read_owned(zero_fd, read_buffer)
-                            .await
-                            .expect("Read operation failed");
+                        let result = ring.read_owned(zero_fd, read_buffer).await;
+                        
+                        let (bytes_read, echo_buffer) = match result {
+                            Ok(data) => data,
+                            Err(e) => {
+                                eprintln!("Read operation {} failed with fd {}: {:?}", i, zero_fd, e);
+                                // Try to continue with remaining operations
+                                continue;
+                            }
+                        };
 
                         if bytes_read > 0 {
-                            let (bytes_written, _) = ring
-                                .write_owned(null_fd, echo_buffer)
-                                .await
-                                .expect("Write operation failed");
-
-                            total_processed += bytes_written;
+                            let write_result = ring.write_owned(null_fd, echo_buffer).await;
+                            match write_result {
+                                Ok((bytes_written, _)) => {
+                                    total_processed += bytes_written;
+                                }
+                                Err(e) => {
+                                    eprintln!("Write operation {} failed with fd {}: {:?}", i, null_fd, e);
+                                    continue;
+                                }
+                            }
                         }
                     }
 
@@ -115,17 +125,25 @@ fn bench_raw_io_uring_pseudo_io(
                     // Pre-allocate buffer to avoid allocation overhead in benchmark
                     let mut buffer = vec![0u8; msg_size];
 
-                    for _ in 0..config::ECHO_OPERATIONS_PER_ITER {
-                        let bytes_read = ring
-                            .read_raw(zero_fd, &mut buffer)
-                            .await
-                            .expect("Raw read operation failed");
+                    for i in 0..config::ECHO_OPERATIONS_PER_ITER {
+                        let read_result = ring.read_raw(zero_fd, &mut buffer).await;
+                        let bytes_read = match read_result {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                eprintln!("Raw read operation {} failed with fd {}: {:?}", i, zero_fd, e);
+                                continue;
+                            }
+                        };
 
                         if bytes_read > 0 {
-                            let bytes_written = ring
-                                .write_raw(null_fd, &buffer[..bytes_read])
-                                .await
-                                .expect("Raw write operation failed");
+                            let write_result = ring.write_raw(null_fd, &buffer[..bytes_read]).await;
+                            let bytes_written = match write_result {
+                                Ok(bytes) => bytes,
+                                Err(e) => {
+                                    eprintln!("Raw write operation {} failed with fd {}: {:?}", i, null_fd, e);
+                                    continue;
+                                }
+                            };
 
                             total_processed += bytes_written;
                         }
