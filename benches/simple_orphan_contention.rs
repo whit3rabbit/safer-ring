@@ -1,6 +1,6 @@
 //! Simple benchmark to measure OrphanTracker mutex contention.
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use safer_ring::ownership::OwnedBuffer;
 use safer_ring::safety::OrphanTracker;
 use std::sync::{Arc, Mutex};

@@ -35,7 +35,7 @@ pub fn bench_file_copy_comparison(c: &mut Criterion) {
     system_info.log_system_info();
 
     let rt = Runtime::new().expect("Failed to create tokio runtime");
-    
+
     let mut group = c.benchmark_group("file_copy_comparison");
     // Configure for reasonable benchmark execution time
     group
@@ -73,10 +73,10 @@ fn bench_safer_ring_file_copy(
         // Setup: Create test files and ring once
         let source_file = setup_test_file(size);
         let dest_file = NamedTempFile::new().expect("Failed to create destination file");
-        
+
         // Pre-create ring for reuse across iterations
         let ring = Ring::new(config::DEFAULT_RING_SIZE).expect("Failed to create ring");
-        
+
         b.iter(|| {
             rt.block_on(async {
                 let src_fd = source_file.as_raw_fd();
@@ -88,16 +88,20 @@ fn bench_safer_ring_file_copy(
                     let buffer = OwnedBuffer::new(read_size);
 
                     // Use async operations with optimized completion waiting
-                    let (bytes_read, buffer) = match ring.read_at_owned(src_fd, buffer, offset as u64).await {
-                        Ok(data) => data,
-                        Err(e) => panic!("Read operation failed at offset {}: {:?}", offset, e),
-                    };
+                    let (bytes_read, buffer) =
+                        match ring.read_at_owned(src_fd, buffer, offset as u64).await {
+                            Ok(data) => data,
+                            Err(e) => panic!("Read operation failed at offset {}: {:?}", offset, e),
+                        };
 
                     if bytes_read == 0 {
                         break;
                     }
 
-                    let (bytes_written, _) = match ring.write_at_owned(dst_fd, buffer, offset as u64, bytes_read).await {
+                    let (bytes_written, _) = match ring
+                        .write_at_owned(dst_fd, buffer, offset as u64, bytes_read)
+                        .await
+                    {
                         Ok(data) => data,
                         Err(e) => panic!("Write operation failed at offset {}: {:?}", offset, e),
                     };
@@ -123,7 +127,7 @@ fn bench_raw_io_uring_file_copy(
         // Setup: Create test files once
         let source_file = setup_test_file(size);
         let dest_file = NamedTempFile::new().expect("Failed to create destination file");
-        
+
         // Pre-allocate buffer once to avoid allocation overhead in benchmark
         let mut buffer = vec![0u8; config::FILE_CHUNK_SIZE];
 
@@ -194,63 +198,76 @@ fn bench_safer_ring_file_copy_direct(
 ) {
     // O_DIRECT requires aligned buffer sizes, so we use 4KB chunks minimum
     let aligned_size = ((size + 4095) / 4096) * 4096;
-    
-    group.bench_with_input(BenchmarkId::new("safer_ring_direct", aligned_size), &aligned_size, |b, &aligned_size| {
-        b.iter(|| {
-            rt.block_on(async {
-                // Create temporary files with O_DIRECT
-                let source_file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .read(true)
-                    .custom_flags(libc::O_DIRECT)
-                    .open("/tmp/bench_src_direct")
-                    .expect("Failed to create O_DIRECT source file");
-                
-                let dest_file = std::fs::OpenOptions::new()
-                    .create(true)
-                    .write(true)
-                    .read(true)
-                    .truncate(true)
-                    .custom_flags(libc::O_DIRECT)
-                    .open("/tmp/bench_dst_direct")
-                    .expect("Failed to create O_DIRECT destination file");
 
-                // Write test data to source file first (4KB aligned)
-                let test_data = vec![0x42u8; aligned_size];
-                std::fs::write("/tmp/bench_src_direct_temp", &test_data).expect("Failed to write test data");
-                std::fs::copy("/tmp/bench_src_direct_temp", "/tmp/bench_src_direct").expect("Failed to copy test data");
-                
-                let ring = Ring::new(config::DEFAULT_RING_SIZE).expect("Failed to create ring");
-                let src_fd = source_file.as_raw_fd();
-                let dst_fd = dest_file.as_raw_fd();
-                let mut offset = 0;
+    group.bench_with_input(
+        BenchmarkId::new("safer_ring_direct", aligned_size),
+        &aligned_size,
+        |b, &aligned_size| {
+            b.iter(|| {
+                rt.block_on(async {
+                    // Create temporary files with O_DIRECT
+                    let source_file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .read(true)
+                        .custom_flags(libc::O_DIRECT)
+                        .open("/tmp/bench_src_direct")
+                        .expect("Failed to create O_DIRECT source file");
 
-                while offset < aligned_size {
-                    let read_size = std::cmp::min(4096, aligned_size - offset); // 4KB chunks for O_DIRECT
-                    let buffer = OwnedBuffer::new(read_size);
+                    let dest_file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .write(true)
+                        .read(true)
+                        .truncate(true)
+                        .custom_flags(libc::O_DIRECT)
+                        .open("/tmp/bench_dst_direct")
+                        .expect("Failed to create O_DIRECT destination file");
 
-                    let (bytes_read, buffer) = ring.read_at_owned(src_fd, buffer, offset as u64).await
-                        .expect("O_DIRECT read operation failed");
+                    // Write test data to source file first (4KB aligned)
+                    let test_data = vec![0x42u8; aligned_size];
+                    std::fs::write("/tmp/bench_src_direct_temp", &test_data)
+                        .expect("Failed to write test data");
+                    std::fs::copy("/tmp/bench_src_direct_temp", "/tmp/bench_src_direct")
+                        .expect("Failed to copy test data");
 
-                    if bytes_read == 0 {
-                        break;
+                    let ring = Ring::new(config::DEFAULT_RING_SIZE).expect("Failed to create ring");
+                    let src_fd = source_file.as_raw_fd();
+                    let dst_fd = dest_file.as_raw_fd();
+                    let mut offset = 0;
+
+                    while offset < aligned_size {
+                        let read_size = std::cmp::min(4096, aligned_size - offset); // 4KB chunks for O_DIRECT
+                        let buffer = OwnedBuffer::new(read_size);
+
+                        let (bytes_read, buffer) = ring
+                            .read_at_owned(src_fd, buffer, offset as u64)
+                            .await
+                            .expect("O_DIRECT read operation failed");
+
+                        if bytes_read == 0 {
+                            break;
+                        }
+
+                        let (bytes_written, _) = ring
+                            .write_at_owned(dst_fd, buffer, offset as u64, bytes_read)
+                            .await
+                            .expect("O_DIRECT write operation failed");
+
+                        assert_eq!(
+                            bytes_read, bytes_written,
+                            "Read/write size mismatch with O_DIRECT"
+                        );
+                        offset += bytes_read;
                     }
 
-                    let (bytes_written, _) = ring.write_at_owned(dst_fd, buffer, offset as u64, bytes_read).await
-                        .expect("O_DIRECT write operation failed");
+                    // Cleanup temp files
+                    let _ = std::fs::remove_file("/tmp/bench_src_direct");
+                    let _ = std::fs::remove_file("/tmp/bench_dst_direct");
+                    let _ = std::fs::remove_file("/tmp/bench_src_direct_temp");
 
-                    assert_eq!(bytes_read, bytes_written, "Read/write size mismatch with O_DIRECT");
-                    offset += bytes_read;
-                }
-
-                // Cleanup temp files
-                let _ = std::fs::remove_file("/tmp/bench_src_direct");
-                let _ = std::fs::remove_file("/tmp/bench_dst_direct");
-                let _ = std::fs::remove_file("/tmp/bench_src_direct_temp");
-
-                black_box(offset);
+                    black_box(offset);
+                })
             })
-        })
-    });
+        },
+    );
 }

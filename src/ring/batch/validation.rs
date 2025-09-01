@@ -214,7 +214,7 @@ impl DependencyValidator {
     /// let order = DependencyValidator::dependency_order(&deps, 3).unwrap();
     /// // Valid orders: [0, 1, 2] (dependencies come before dependents)
     /// assert_eq!(order.first(), Some(&0)); // 0 should come first
-    /// assert!(order.iter().position(|&x| x == 1).unwrap() < 
+    /// assert!(order.iter().position(|&x| x == 1).unwrap() <
     ///         order.iter().position(|&x| x == 2).unwrap()); // 1 before 2
     /// ```
     ///

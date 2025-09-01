@@ -413,7 +413,9 @@ async fn copy_file_simple(
 
         // STEP 2: Process the read data (only if we actually read something)
         if bytes_read > 0 {
-            println!("✏️  Writing {bytes_read} bytes at offset {offset} (hot potato: buffer → kernel)");
+            println!(
+                "✏️  Writing {bytes_read} bytes at offset {offset} (hot potato: buffer → kernel)"
+            );
 
             // STEP 3: Perform write using the `write_at_owned` API (hot potato continues)
             // EDUCATIONAL BREAKDOWN:

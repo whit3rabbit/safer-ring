@@ -136,6 +136,37 @@ struct PoolDemoStats {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🏊 Safer-Ring Buffer Pool Demonstration");
     println!("=======================================");
+    println!();
+    println!("📚 EDUCATIONAL NOTE: Buffer Pool vs Simple Buffer Reuse");
+    println!("========================================================");
+    println!("🔍 BufferPool is designed for high-throughput scenarios with many concurrent");
+    println!("   operations that need pre-allocated buffers. However, for many applications,");
+    println!("   simply reusing a single OwnedBuffer in a loop is simpler and sufficient:");
+    println!();
+    println!("   💡 Simple Pattern (recommended for most use cases):");
+    println!("      let mut buffer = OwnedBuffer::new(size);");
+    println!("      loop {{");
+    println!("          let (result, returned_buffer) = ring.read_owned(fd, buffer).await?;");
+    println!("          buffer = returned_buffer; // Hot potato reuse!");
+    println!("      }}");
+    println!();
+    println!("   🏊 Pool Pattern (for high-frequency, concurrent scenarios):");
+    println!("      let pool = BufferPool::new(pool_size, buffer_size);");
+    println!("      let buffer = pool.get_buffer().await?;");
+    println!("      // buffer is automatically returned to pool when dropped");
+    println!();
+    println!("   📊 Use BufferPool when you have:");
+    println!("      ✓ High-frequency allocations (thousands per second)");
+    println!("      ✓ Many concurrent operations needing buffers simultaneously");
+    println!("      ✓ Unpredictable buffer lifetime patterns");
+    println!("      ✓ Need to avoid allocation spikes in latency-critical code");
+    println!();
+    println!("   🎯 Use simple OwnedBuffer reuse when you have:");
+    println!("      ✓ Sequential or low-frequency operations");
+    println!("      ✓ Predictable buffer usage patterns");
+    println!("      ✓ Want to minimize complexity");
+    println!("      ✓ Don't need many buffers simultaneously");
+    println!();
 
     let config = DemoConfig::from_args();
     println!("📊 Configuration:");

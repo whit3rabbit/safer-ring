@@ -279,7 +279,7 @@ pub struct Ring<'ring> {
     pub(super) orphan_tracker: Arc<Mutex<OrphanTracker>>,
     // Completion cache to avoid repeated backend polling
     pub(super) completion_cache: RefCell<HashMap<u64, io::Result<i32>>>,
-    
+
     // AsyncFd integration for proper reactor integration
     #[cfg(target_os = "linux")]
     pub(super) async_fd: Option<AsyncFd<RawFdWrapper>>,
@@ -318,14 +318,17 @@ impl<'ring> Ring<'ring> {
         }
 
         let backend = detect_backend(entries)?;
-        
+
         // Try to setup AsyncFd integration for Linux only if we're in a tokio context
         #[cfg(target_os = "linux")]
         let async_fd = {
             // Check if we're in a tokio runtime context before creating AsyncFd
             if tokio::runtime::Handle::try_current().is_ok() {
                 // Try to get the io_uring fd if we're using the io_uring backend
-                if let Some(io_uring_backend) = backend.as_any().downcast_ref::<crate::backend::io_uring::IoUringBackend>() {
+                if let Some(io_uring_backend) = backend
+                    .as_any()
+                    .downcast_ref::<crate::backend::io_uring::IoUringBackend>(
+                ) {
                     let fd = io_uring_backend.as_raw_fd();
                     AsyncFd::new(RawFdWrapper(fd)).ok()
                 } else {
@@ -335,7 +338,7 @@ impl<'ring> Ring<'ring> {
                 None
             }
         };
-        
+
         #[cfg(not(target_os = "linux"))]
         let async_fd = None;
 
@@ -489,7 +492,7 @@ impl<'ring> CompletionChecker for Ring<'ring> {
                     Err(e) => Err(std::io::Error::new(e.kind(), format!("{e}"))),
                 };
                 drop(cache);
-                
+
                 // Remove from cache after returning
                 self.completion_cache.borrow_mut().remove(&submission_id);
                 return Ok(Some(result));
@@ -529,8 +532,10 @@ impl<'ring> CompletionChecker for Ring<'ring> {
                     Ok(bytes) => Ok(*bytes),
                     Err(e) => Err(std::io::Error::new(e.kind(), format!("{e}"))),
                 };
-                self.completion_cache.borrow_mut().insert(completed_id, cached_result);
-                
+                self.completion_cache
+                    .borrow_mut()
+                    .insert(completed_id, cached_result);
+
                 let mut orphan_tracker = self.orphan_tracker.lock().unwrap();
                 if let Some((orphaned_buffer, _operation_result)) =
                     orphan_tracker.handle_completion(completed_id, result)
@@ -599,7 +604,7 @@ impl<'ring> Ring<'ring> {
                     Ok(mut guard) => {
                         // Clear the ready state so we can wait again if needed
                         guard.clear_ready();
-                        
+
                         // Try to complete operations now that the kernel signaled readiness
                         if let Some(result) = self.try_complete_by_id(submission_id)? {
                             return Ok(result);

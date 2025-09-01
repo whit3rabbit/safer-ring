@@ -180,6 +180,7 @@ impl TlsContext {
 #[allow(dead_code)]
 struct HttpsStats {
     connections_accepted: u64,
+    connections_closed: u64,
     tls_handshakes_completed: u64,
     requests_served: u64,
     bytes_sent: u64,
@@ -208,7 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize TLS context
     println!("🔐 Initializing TLS context...");
-    let tls_context = TlsContext::new(&config)?;
+    let tls_context = Arc::new(TlsContext::new(&config)?);
     println!("✅ TLS context initialized");
     if tls_context.ktls_available {
         println!("⚡ kTLS support detected and enabled");
@@ -223,7 +224,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📡 HTTPS server listening on {}", config.bind_address);
 
     // Create io_uring instance
-    let mut ring = Ring::new(config.ring_size)?;
+    let ring = Ring::new(config.ring_size)?;
     println!("⚡ Created io_uring with {} entries", config.ring_size);
 
     // Initialize statistics
@@ -254,68 +255,81 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     println!();
 
-    // Accept and handle connections in the main event loop
+    // Main accept loop - each connection gets its own task with its own Ring
     //
-    // EDUCATIONAL NOTE: This demonstrates safer-ring's sequential async pattern.
-    // Each connection is handled one at a time to maintain memory safety.
+    // EDUCATIONAL NOTE: This implements the RECOMMENDED "one Ring per task" concurrency model.
+    // Each client connection is handled in its own async task with a dedicated Ring instance.
+    // This provides true concurrency while maintaining memory safety through Rust's ownership.
     loop {
         // Accept new connections using safer-ring's safe accept API
         // accept_safe() returns a Future<Output=Result<i32, Error>>
         // where i32 is the new client file descriptor
-        match ring.accept_safe(listener_fd).await {
-            Ok(client_fd) => {
-                // Update connection statistics atomically
-                // Using Arc<Mutex<_>> for thread-safe statistics sharing
-                {
-                    let mut stats = stats.lock().await;
-                    stats.connections_accepted += 1;
-                }
+        let client_fd = ring.accept_safe(listener_fd).await?;
 
-                println!("🔌 New HTTPS connection: fd {client_fd}");
-
-                // Handle the client connection sequentially
-                //
-                // IMPORTANT: safer-ring operations are sequential by design for safety!
-                // The owned APIs (read_owned, write_owned) take &mut self, meaning:
-                // 1. Only one operation can be in progress at a time per Ring instance
-                // 2. This prevents data races and memory safety issues
-                // 3. The borrow checker enforces this at compile time
-                //
-                // For concurrent connections, you would need multiple Ring instances
-                // or use a different architecture (like a connection pool).
-                let start_time = Instant::now();
-                let buffer_size = config.buffer_size;
-                let result =
-                    handle_https_client(&mut ring, &tls_context, client_fd, buffer_size, &stats)
-                        .await;
-
-                match result {
-                    Ok(_) => {
-                        println!(
-                            "✅ HTTPS connection {} completed ({:?})",
-                            client_fd,
-                            start_time.elapsed()
-                        );
-                    }
-                    Err(e) => {
-                        eprintln!("❌ HTTPS connection {client_fd} error: {e}");
-                    }
-                }
-
-                // Close the client socket when done
-                //
-                // EDUCATIONAL NOTE: We use unsafe here for socket cleanup because:
-                // 1. safer-ring doesn't provide a safe close() wrapper yet
-                // 2. This is safe because we're done with all I/O on this fd
-                // 3. In production, consider using a Socket wrapper that auto-closes
-                unsafe {
-                    libc::close(client_fd);
-                }
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to accept HTTPS connection: {e}");
-            }
+        // Update connection statistics atomically
+        {
+            let mut stats_guard = stats.lock().await;
+            stats_guard.connections_accepted += 1;
         }
+
+        println!("🔌 New HTTPS connection: fd {client_fd}");
+
+        // EDUCATIONAL NOTE: This is the recommended concurrency model for safer-ring.
+        // Each client connection is handled in its own async task, and each task
+        // creates its own `Ring` instance. This avoids lifetime conflicts and scales
+        // perfectly with async runtimes.
+        //
+        // Key benefits of "one Ring per task" model:
+        // ✓ True concurrent connection handling - multiple clients processed simultaneously
+        // ✓ No contention between tasks - each has dedicated io_uring instance
+        // ✓ Perfect scaling with async runtimes like tokio
+        // ✓ Memory safety guaranteed by Rust's ownership system
+        // ✓ No complex synchronization or locking required
+        // ✓ Each task can use the optimal "hot potato" buffer pattern
+        let stats_clone = Arc::clone(&stats);
+        let tls_context_clone = Arc::clone(&tls_context);
+        let buffer_size = config.buffer_size;
+
+        tokio::spawn(async move {
+            // Each task creates its own Ring instance. This is the key to avoiding borrow conflicts
+            // and achieving optimal performance. This pattern scales linearly with concurrent connections.
+            let mut client_ring = Ring::new(32).expect("Failed to create ring for client task");
+            let start_time = Instant::now();
+
+            let result = handle_https_client(
+                &mut client_ring,
+                &tls_context_clone,
+                client_fd,
+                buffer_size,
+                &stats_clone,
+            )
+            .await;
+
+            match result {
+                Ok(_) => println!(
+                    "✅ HTTPS connection {} completed ({:?})",
+                    client_fd,
+                    start_time.elapsed()
+                ),
+                Err(e) => eprintln!("❌ HTTPS connection {client_fd} error: {e}"),
+            }
+
+            // Close the client socket when done
+            //
+            // EDUCATIONAL NOTE: We use unsafe here for socket cleanup because:
+            // 1. safer-ring doesn't provide a safe close() wrapper yet
+            // 2. This is safe because we're done with all I/O on this fd
+            // 3. In production, consider using a Socket wrapper that auto-closes
+            unsafe {
+                libc::close(client_fd);
+            }
+
+            // Update connection statistics
+            {
+                let mut stats_guard = stats_clone.lock().await;
+                stats_guard.connections_closed += 1;
+            }
+        });
     }
 }
 

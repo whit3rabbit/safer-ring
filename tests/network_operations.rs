@@ -202,7 +202,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     // Server logic - Use Box::leak() to solve lifetime issues
     let ring1 = Ring::new(32)?;
     let ring1: &'static Ring = Box::leak(Box::new(ring1));
-    let client_fd = ring1.accept_safe(listener_fd).await?;
+    let client_fd = timeout(Duration::from_secs(10), ring1.accept_safe(listener_fd)).await??;
 
     // Use a separate ring for recv/send operations
     let ring2 = Ring::new(32)?;
@@ -213,8 +213,11 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
 
     // Receive data
-    let (bytes_received, received_slice) =
-        ring2.recv(client_fd, recv_buffer.as_mut_slice())?.await?;
+    let (bytes_received, received_slice) = timeout(
+        Duration::from_secs(10),
+        ring2.recv(client_fd, recv_buffer.as_mut_slice())?,
+    )
+    .await??;
     let received_data = received_slice[..bytes_received].to_vec();
 
     // Send echo back - need to use separate Ring to avoid double mutable borrow
@@ -222,7 +225,11 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     let ring3: &'static mut Ring = Box::leak(Box::new(ring3));
     let send_buffer = PinnedBuffer::from_slice(&received_data);
     let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
-    let (bytes_sent, _) = ring3.send(client_fd, send_buffer.as_mut_slice())?.await?;
+    let (bytes_sent, _) = timeout(
+        Duration::from_secs(10),
+        ring3.send(client_fd, send_buffer.as_mut_slice())?,
+    )
+    .await??;
 
     unsafe { libc::close(client_fd) };
 
@@ -266,7 +273,11 @@ async fn test_multiple_concurrent_connections(
     let mut server_results = Vec::new();
 
     for _ in 0..NUM_CONNECTIONS {
-        let client_fd = accept_ring.accept_safe(listener_fd).await?;
+        let client_fd = timeout(
+            Duration::from_secs(10),
+            accept_ring.accept_safe(listener_fd),
+        )
+        .await??;
 
         // Use separate leaked rings for each connection to avoid borrow conflicts
         let conn_ring_recv = Ring::new(32)?;
@@ -277,9 +288,11 @@ async fn test_multiple_concurrent_connections(
         let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
 
         // Receive data
-        let (bytes_received, received_slice) = conn_ring_recv
-            .recv(client_fd, recv_buffer.as_mut_slice())?
-            .await?;
+        let (bytes_received, received_slice) = timeout(
+            Duration::from_secs(10),
+            conn_ring_recv.recv(client_fd, recv_buffer.as_mut_slice())?,
+        )
+        .await??;
         let received_data = received_slice[..bytes_received].to_vec();
 
         // Send echo back using separate ring to avoid double mutable borrow
@@ -287,9 +300,11 @@ async fn test_multiple_concurrent_connections(
         let conn_ring_send: &'static mut Ring = Box::leak(Box::new(conn_ring_send));
         let send_buffer = PinnedBuffer::from_slice(&received_data);
         let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
-        let (bytes_sent, _) = conn_ring_send
-            .send(client_fd, send_buffer.as_mut_slice())?
-            .await?;
+        let (bytes_sent, _) = timeout(
+            Duration::from_secs(10),
+            conn_ring_send.send(client_fd, send_buffer.as_mut_slice())?,
+        )
+        .await??;
 
         server_results.push((bytes_received, bytes_sent));
 

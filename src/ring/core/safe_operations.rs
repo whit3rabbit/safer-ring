@@ -268,6 +268,11 @@ impl<'ring> Ring<'ring> {
     /// Unlike buffer operations, accept doesn't need buffer ownership transfer,
     /// but still uses the safe operation pattern for consistency.
     ///
+    /// The completion (CQE) result for this operation contains the newly
+    /// accepted client file descriptor. This method returns that fd.
+    /// Note: the "bytes" field commonly used for read/write operations is not
+    /// meaningful for accept and should not be interpreted as a byte count.
+    ///
     /// # Arguments
     ///
     /// * `fd` - Listening socket file descriptor
@@ -322,14 +327,11 @@ impl<'ring> Ring<'ring> {
         // Create future to poll for completion
         let future = SafeAcceptFuture::new(operation, self, self.waker_registry.clone());
 
-        // Await the accept completion
-        let (_bytes, _buffer) = future.await?;
+        // Await the accept completion. For accept, the CQE result is the new fd.
+        let (accepted_fd, _buffer) = future.await?;
 
-        // For accept operations, the result is the new file descriptor
-        // We need to extract it from the completion result
-        // In a real implementation, this would be handled more carefully
-        // For now, we simulate getting a new fd
-        Ok(fd + 1000) // Placeholder - in reality this would come from the kernel
+        // Return the newly accepted socket fd from the kernel.
+        Ok(accepted_fd as RawFd)
     }
 
     /// Get ring-managed buffer for operations.

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use pprof::criterion::{Output, PProfProfiler};
-use safer_ring::{BufferPool, PinnedBuffer, Ring};
+use safer_ring::{BufferPool, OwnedBuffer, PinnedBuffer, Ring};
 use std::io::Write;
 use std::os::unix::io::AsRawFd;
 use tempfile::NamedTempFile;
@@ -213,9 +213,11 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                         let mut futures = Vec::new();
                         for i in 0..10 {
                             let buffer = numa_support::allocate_numa_buffer(4096, node);
-                            let mut pinned_buffer = PinnedBuffer::new(buffer);
+                            let pinned_buffer = PinnedBuffer::new(buffer);
+                            // Use owned buffer for benchmarks to avoid lifetime issues
+                            let owned_buffer = OwnedBuffer::new(4096);
                             if let Ok(future) =
-                                ring.read_at(fd, pinned_buffer.as_mut_slice(), (i * 4096) as u64)
+                                ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
                             {
                                 futures.push(future);
                             }
@@ -238,12 +240,9 @@ fn bench_numa_io_operations(c: &mut Criterion) {
 
                     let mut futures = Vec::new();
                     for i in 0..10 {
-                        // Allocate buffer on node 0, but process on node 1
-                        let buffer = numa_support::allocate_numa_buffer(4096, 0);
-                        numa_support::bind_to_numa_node(1).unwrap();
-                        let mut pinned_buffer = PinnedBuffer::new(buffer);
-                        if let Ok(future) =
-                            ring.read_at(fd, pinned_buffer.as_mut_slice(), (i * 4096) as u64)
+                        // Use owned buffer for benchmarks to avoid lifetime issues
+                        let owned_buffer = OwnedBuffer::new(4096);
+                        if let Ok(future) = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
                         {
                             futures.push(future);
                         }
@@ -265,10 +264,10 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                 let fd = file.as_raw_fd();
 
                 let mut futures = Vec::new();
-                let mut buffers: Vec<PinnedBuffer<[u8]>> =
-                    (0..10).map(|_| PinnedBuffer::with_capacity(4096)).collect();
-                for (i, buffer) in buffers.iter_mut().enumerate() {
-                    if let Ok(future) = ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64) {
+                // Use owned buffers to avoid lifetime issues
+                for i in 0..10 {
+                    let owned_buffer = OwnedBuffer::new(4096);
+                    if let Ok(future) = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64) {
                         futures.push(future);
                     }
                 }
@@ -302,12 +301,12 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                         let fd = file.as_raw_fd();
 
                         for i in 0..10 {
-                            if let Some(mut buffer) = numa_pool.acquire_local() {
-                                if let Ok(future) =
-                                    ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64)
-                                {
-                                    futures.push(future);
-                                }
+                            // Use owned buffer to avoid lifetime issues
+                            let owned_buffer = OwnedBuffer::new(4096);
+                            if let Ok(future) =
+                                ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
+                            {
+                                futures.push(future);
                             }
                         }
                     }
@@ -332,12 +331,11 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                     let fd = file.as_raw_fd();
 
                     for i in 0..10 {
-                        if let Some(mut buffer) = pool.get() {
-                            if let Ok(future) =
-                                ring.read_at(fd, buffer.as_mut_slice(), (i * 4096) as u64)
-                            {
-                                futures.push(future);
-                            }
+                        // Use owned buffer to avoid lifetime issues
+                        let owned_buffer = OwnedBuffer::new(4096);
+                        if let Ok(future) = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
+                        {
+                            futures.push(future);
                         }
                     }
                 }

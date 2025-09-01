@@ -29,7 +29,7 @@
 //!
 //! Measures the cost of safety abstractions using /dev/zero and /dev/null:
 //!
-//! - **1.7x Safety Overhead**: raw_io_uring (11.7µs) vs safer_ring (19.5µs) 
+//! - **1.7x Safety Overhead**: raw_io_uring (11.7µs) vs safer_ring (19.5µs)
 //! - **Excellent Trade-off**: Only microseconds overhead for complete memory safety
 //! - **Safety Cost Sources**: Mutex locks, submission ID generation, ownership transfers
 //! - **Design Validation**: Safety abstractions are highly efficient

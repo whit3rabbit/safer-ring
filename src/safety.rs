@@ -265,7 +265,8 @@ impl<'ring> std::future::Future for SafeOperationFuture<'ring> {
                     self.operation = Some(operation);
 
                     // Register waker for when completion processing discovers this operation
-                    self.waker_registry.register_waker(submission_id, cx.waker().clone());
+                    self.waker_registry
+                        .register_waker(submission_id, cx.waker().clone());
 
                     // Spawn a task that triggers completion processing after a short delay
                     // This ensures progress even when no other futures are being polled
@@ -356,12 +357,13 @@ impl<'ring> std::future::Future for SafeAcceptFuture<'ring> {
                     Poll::Ready(Ok((bytes_transferred as usize, buffer)))
                 }
                 Ok(None) => {
-                    // Operation still pending - use simple async retry approach  
+                    // Operation still pending - use simple async retry approach
                     let submission_id = operation.submission_id;
                     self.operation = Some(operation);
 
                     // Register waker for when completion processing discovers this operation
-                    self.waker_registry.register_waker(submission_id, cx.waker().clone());
+                    self.waker_registry
+                        .register_waker(submission_id, cx.waker().clone());
 
                     // Spawn a task that triggers completion processing after a short delay
                     // This ensures progress even when no other futures are being polled

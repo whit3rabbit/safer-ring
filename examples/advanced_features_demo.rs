@@ -9,8 +9,8 @@
 //! - Performance optimization techniques
 
 use safer_ring::{
-    BufferGroup, BufferPool, FeatureDetector, LogLevel, MultiShotConfig, PinnedBuffer, Ring,
-    SaferRingConfig,
+    BufferGroup, BufferPool, FeatureDetector, LogLevel, MultiShotConfig, OwnedBuffer, PinnedBuffer,
+    Ring, SaferRingConfig,
 };
 
 #[tokio::main]
@@ -226,11 +226,23 @@ async fn demonstrate_advanced_buffers() -> Result<(), Box<dyn std::error::Error>
 
     // NUMA-aware buffer allocation
     println!("\nNUMA-aware buffer allocation:");
+    // EDUCATIONAL NOTE: While PinnedBuffer supports NUMA allocation,
+    // OwnedBuffer is the RECOMMENDED choice for I/O operations due to
+    // its superior ergonomics and the "hot potato" ownership pattern.
     let numa_buffer = PinnedBuffer::with_capacity_numa(4096, Some(0));
     println!(
-        "  Created NUMA-aware buffer on node 0: {} bytes",
+        "  Created NUMA-aware PinnedBuffer on node 0: {} bytes",
         numa_buffer.len()
     );
+    println!("  📚 Note: For I/O operations, prefer OwnedBuffer with *_owned methods");
+
+    // Demonstrate the RECOMMENDED OwnedBuffer for comparison
+    let owned_buffer = OwnedBuffer::new(4096);
+    println!(
+        "  ✅ RECOMMENDED: Created OwnedBuffer for I/O: {} bytes",
+        owned_buffer.size()
+    );
+    println!("  📚 OwnedBuffer provides the optimal 'hot potato' ownership pattern");
 
     println!();
     Ok(())

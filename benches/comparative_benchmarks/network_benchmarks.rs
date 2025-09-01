@@ -53,10 +53,10 @@ fn bench_safer_ring_pseudo_io(
 
                     // Use /dev/zero and /dev/null to simulate network I/O without network setup
                     // Keep File objects alive to prevent fd closure
-                    let zero_file = std::fs::File::open("/dev/zero")
-                        .expect("Failed to open /dev/zero");
-                    let null_file = std::fs::File::create("/dev/null")
-                        .expect("Failed to open /dev/null");
+                    let zero_file =
+                        std::fs::File::open("/dev/zero").expect("Failed to open /dev/zero");
+                    let null_file =
+                        std::fs::File::create("/dev/null").expect("Failed to open /dev/null");
                     let zero_fd = zero_file.as_raw_fd();
                     let null_fd = null_file.as_raw_fd();
 
@@ -66,11 +66,14 @@ fn bench_safer_ring_pseudo_io(
                     for i in 0..config::ECHO_OPERATIONS_PER_ITER {
                         let read_buffer = OwnedBuffer::new(msg_size);
                         let result = ring.read_owned(zero_fd, read_buffer).await;
-                        
+
                         let (bytes_read, echo_buffer) = match result {
                             Ok(data) => data,
                             Err(e) => {
-                                eprintln!("Read operation {} failed with fd {}: {:?}", i, zero_fd, e);
+                                eprintln!(
+                                    "Read operation {} failed with fd {}: {:?}",
+                                    i, zero_fd, e
+                                );
                                 // Try to continue with remaining operations
                                 continue;
                             }
@@ -83,7 +86,10 @@ fn bench_safer_ring_pseudo_io(
                                     total_processed += bytes_written;
                                 }
                                 Err(e) => {
-                                    eprintln!("Write operation {} failed with fd {}: {:?}", i, null_fd, e);
+                                    eprintln!(
+                                        "Write operation {} failed with fd {}: {:?}",
+                                        i, null_fd, e
+                                    );
                                     continue;
                                 }
                             }
@@ -114,10 +120,10 @@ fn bench_raw_io_uring_pseudo_io(
                         RawRing::new(config::DEFAULT_RING_SIZE).expect("Failed to create raw ring");
 
                     // Keep File objects alive to prevent fd closure
-                    let zero_file = std::fs::File::open("/dev/zero")
-                        .expect("Failed to open /dev/zero");
-                    let null_file = std::fs::File::create("/dev/null")
-                        .expect("Failed to open /dev/null");
+                    let zero_file =
+                        std::fs::File::open("/dev/zero").expect("Failed to open /dev/zero");
+                    let null_file =
+                        std::fs::File::create("/dev/null").expect("Failed to open /dev/null");
                     let zero_fd = zero_file.as_raw_fd();
                     let null_fd = null_file.as_raw_fd();
 
@@ -130,7 +136,10 @@ fn bench_raw_io_uring_pseudo_io(
                         let bytes_read = match read_result {
                             Ok(bytes) => bytes,
                             Err(e) => {
-                                eprintln!("Raw read operation {} failed with fd {}: {:?}", i, zero_fd, e);
+                                eprintln!(
+                                    "Raw read operation {} failed with fd {}: {:?}",
+                                    i, zero_fd, e
+                                );
                                 continue;
                             }
                         };
@@ -140,7 +149,10 @@ fn bench_raw_io_uring_pseudo_io(
                             let bytes_written = match write_result {
                                 Ok(bytes) => bytes,
                                 Err(e) => {
-                                    eprintln!("Raw write operation {} failed with fd {}: {:?}", i, null_fd, e);
+                                    eprintln!(
+                                        "Raw write operation {} failed with fd {}: {:?}",
+                                        i, null_fd, e
+                                    );
                                     continue;
                                 }
                             };

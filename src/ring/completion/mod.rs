@@ -124,13 +124,13 @@ impl<'ring> Ring<'ring> {
     /// Returns an error if the operation ID is not recognized or if there's
     /// a system error while checking completions.
     pub fn try_complete_by_id(&mut self, operation_id: u64) -> Result<Option<io::Result<i32>>> {
-        // Track polling for debugging  
+        // Track polling for debugging
         static POLL_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let count = POLL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if count % 1000 == 0 {
             eprintln!("[DEBUG] try_complete_by_id called {count} times for op {operation_id}");
         }
-        
+
         // First check the completion cache
         {
             let mut cache = self.completion_cache.borrow_mut();
@@ -146,10 +146,13 @@ impl<'ring> Ring<'ring> {
         // Not in cache, try blocking wait instead of busy polling
         let completions = if count > 50 {
             // After many polls with no result, wait for completion
-            self.backend.borrow_mut().wait_for_completion().unwrap_or_else(|_| {
-                // If wait fails (e.g., no operations), fall back to try_complete
-                self.backend.borrow_mut().try_complete().unwrap_or_default()
-            })
+            self.backend
+                .borrow_mut()
+                .wait_for_completion()
+                .unwrap_or_else(|_| {
+                    // If wait fails (e.g., no operations), fall back to try_complete
+                    self.backend.borrow_mut().try_complete().unwrap_or_default()
+                })
         } else {
             // First few attempts use try_complete
             self.backend.borrow_mut().try_complete()?
@@ -161,7 +164,7 @@ impl<'ring> Ring<'ring> {
         {
             let mut tracker = self.operations.borrow_mut();
             let mut cache = self.completion_cache.borrow_mut();
-            
+
             for (completed_id, result) in completions {
                 // Check if this operation is being tracked
                 if tracker.is_operation_tracked(completed_id) {

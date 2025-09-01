@@ -45,7 +45,7 @@ The recommended safe APIs (`read_owned`, `write_owned`, `accept_safe`, `submit_b
 let buffer = OwnedBuffer::new(1024);
 let (bytes, buf) = ring.read_owned(fd, buffer).await?;
 ``` |
-| `write_owned(fd, buffer: OwnedBuffer)` | **(Recommended)** Safely writes to a file descriptor. Takes ownership of the buffer and returns it upon completion. | ```rust
+| `write_owned(fd, buffer: OwnedBuffer)` | **(Recommended)** Safely writes to a file descriptor. Takes ownership of the buffer and returns it upon completion. Note: writes up to the buffer's capacity; to write exactly N bytes, use `write_at_owned(fd, buffer, 0, N)`. | ```rust
 let buffer = OwnedBuffer::from_slice(b"data");
 let (bytes, buf) = ring.write_owned(fd, buffer).await?;
 ``` |
@@ -59,7 +59,7 @@ let (bytes2, buf2) = ring.read_at_owned(fd, buf, 200).await?;
 let buffer = OwnedBuffer::from_slice(b"Hello, world!");
 let (bytes, buf) = ring.write_at_owned(fd, buffer, 100, 13).await?;
 ``` |
-| `accept_safe(listening_fd)` | Safely accepts a new network connection. Returns a future that resolves to the new client file descriptor. | ```rust
+| `accept_safe(listening_fd)` | Safely accepts a new network connection. Returns the new client file descriptor as reported by the kernel (CQE result). | ```rust
 // Assumes listen_fd is a valid listening socket
 let client_fd = ring.accept_safe(listen_fd).await?;
 ``` |
@@ -110,6 +110,17 @@ tokio::join!(f1, f2);
 ``` |
 | `get_buffer(size)` | Gets a ring-managed `OwnedBuffer` from an internal pool (or allocates one). | `let buffer = ring.get_buffer(4096)?;` |
 | `orphan_count()` | Returns the number of currently tracked "orphaned" operations (cancelled futures). Useful for monitoring. | `println!("Orphans: {}", ring.orphan_count());` |
+
+### Echo exactly the received bytes
+
+When echoing over sockets, prefer limiting the write to the number of bytes actually received to avoid sending the buffer's entire capacity:
+
+```rust
+// After a read_owned:
+let (bytes_received, buf) = ring.read_owned(client_fd, buf).await?;
+// Echo exactly what was received:
+let (bytes_sent, buf) = ring.write_at_owned(client_fd, buf, 0, bytes_received).await?;
+```
 
 ---
 

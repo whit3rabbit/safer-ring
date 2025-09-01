@@ -155,7 +155,7 @@ async fn handle_client(
     stats: &Arc<tokio::sync::Mutex<ServerStats>>,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     let mut total_bytes_processed = 0u64;
-    
+
     // Create a single buffer for this connection that we'll reuse (hot potato pattern)
     // This is more efficient than creating new buffers for each operation
     let mut connection_buffer = OwnedBuffer::new(buffer_size);
@@ -179,7 +179,7 @@ async fn handle_client(
                 break;
             }
         };
-        
+
         // Hot potato: catch the buffer back from kernel
         connection_buffer = buffer_back;
 
@@ -195,7 +195,7 @@ async fn handle_client(
         }
 
         // Log received data (truncated for readability)
-        let data_preview = if let Some(guard) = buffer_back.try_access() {
+        let data_preview = if let Some(guard) = connection_buffer.try_access() {
             if bytes_received > 50 {
                 format!(
                     "{}... ({} bytes)",
@@ -214,11 +214,13 @@ async fn handle_client(
         };
         println!("📥 fd {client_fd}: {data_preview}");
 
-        // Echo the data back to the client using the same buffer (hot potato pattern)
-        // We reuse the same buffer that just received data - this is the most efficient approach
+        // Echo the data back to the client using exactly the number of bytes received
+        // Prefer write_at_owned with explicit length to avoid writing the entire buffer capacity
         // Hot potato: throw buffer ownership to kernel for write operation
-        let (bytes_sent, buffer_returned) = ring.write_owned(client_fd, connection_buffer).await?;
-        
+        let (bytes_sent, buffer_returned) = ring
+            .write_at_owned(client_fd, connection_buffer, 0, bytes_received)
+            .await?;
+
         // Hot potato: catch the buffer back from kernel for next iteration
         connection_buffer = buffer_returned;
 
