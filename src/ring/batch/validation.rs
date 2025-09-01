@@ -3,14 +3,75 @@
 use crate::error::{Result, SaferRingError};
 use std::collections::{HashMap, HashSet};
 
-/// Validates batch dependencies and checks for cycles.
+/// A utility for validating dependencies in batch operations and detecting cycles.
+///
+/// The `DependencyValidator` provides methods to analyze dependency graphs for batch
+/// operations, ensuring that operations can be executed in the correct order without
+/// circular dependencies that would cause deadlocks or infinite loops.
+///
+/// This validator is essential for batch processing systems where operations may
+/// depend on the completion of other operations before they can be executed.
+///
+/// # Examples
+///
+/// ```rust
+/// use std::collections::HashMap;
+/// use safer_ring::ring::batch::validation::DependencyValidator;
+///
+/// let mut dependencies = HashMap::new();
+/// dependencies.insert(1, vec![0]); // Operation 1 depends on operation 0
+/// dependencies.insert(2, vec![1]); // Operation 2 depends on operation 1
+///
+/// // Check if the dependencies form a valid DAG (Directed Acyclic Graph)
+/// assert!(!DependencyValidator::has_circular_dependencies(&dependencies));
+///
+/// // Get operations in dependency order
+/// let order = DependencyValidator::dependency_order(&dependencies, 3).unwrap();
+/// assert_eq!(order, vec![0, 1, 2]);
+/// ```
 pub struct DependencyValidator;
 
 impl DependencyValidator {
-    /// Check if the batch has circular dependencies.
+    /// Checks if the dependency graph contains circular dependencies.
     ///
-    /// This method performs a topological sort to detect cycles in the
-    /// dependency graph.
+    /// This method uses depth-first search (DFS) with a recursion stack to detect
+    /// cycles in the dependency graph. A circular dependency occurs when an operation
+    /// transitively depends on itself, which would prevent proper execution ordering.
+    ///
+    /// # Arguments
+    ///
+    /// * `dependencies` - A mapping from operation IDs to their list of dependency IDs.
+    ///   Each key represents an operation, and its value is a vector of operations
+    ///   that must complete before this operation can begin.
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if circular dependencies are detected, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::collections::HashMap;
+    /// use safer_ring::ring::batch::validation::DependencyValidator;
+    ///
+    /// // Valid dependency chain: 0 -> 1 -> 2
+    /// let mut valid_deps = HashMap::new();
+    /// valid_deps.insert(1, vec![0]);
+    /// valid_deps.insert(2, vec![1]);
+    /// assert!(!DependencyValidator::has_circular_dependencies(&valid_deps));
+    ///
+    /// // Circular dependency: 0 -> 1 -> 0
+    /// let mut circular_deps = HashMap::new();
+    /// circular_deps.insert(0, vec![1]);
+    /// circular_deps.insert(1, vec![0]);
+    /// assert!(DependencyValidator::has_circular_dependencies(&circular_deps));
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// Time complexity: O(V + E) where V is the number of operations and E is
+    /// the number of dependencies.
+    /// Space complexity: O(V) for the visited and recursion stack sets.
     pub fn has_circular_dependencies(dependencies: &HashMap<usize, Vec<usize>>) -> bool {
         // Implement cycle detection using DFS
         fn has_cycle(
@@ -51,7 +112,43 @@ impl DependencyValidator {
         false
     }
 
-    /// Check if adding a dependency would create a cycle.
+    /// Determines if adding a new dependency would create a circular dependency.
+    ///
+    /// This method checks whether adding a dependency from `dependent` to `new_dependency`
+    /// would introduce a cycle in the dependency graph. This is useful for validating
+    /// new dependencies before they are added to prevent circular dependencies.
+    ///
+    /// # Arguments
+    ///
+    /// * `dependencies` - The current dependency graph mapping operation IDs to their dependencies
+    /// * `dependent` - The operation ID that would depend on `new_dependency`
+    /// * `new_dependency` - The operation ID that `dependent` wants to depend on
+    ///
+    /// # Returns
+    ///
+    /// Returns `true` if adding this dependency would create a cycle, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::collections::HashMap;
+    /// use safer_ring::ring::batch::validation::DependencyValidator;
+    ///
+    /// let mut deps = HashMap::new();
+    /// deps.insert(1, vec![0]); // 1 depends on 0
+    ///
+    /// // Adding dependency: 2 depends on 1 (valid)
+    /// assert!(!DependencyValidator::would_create_cycle(&deps, 2, 1));
+    ///
+    /// // Adding dependency: 0 depends on 1 (would create cycle: 0 -> 1 -> 0)
+    /// assert!(DependencyValidator::would_create_cycle(&deps, 0, 1));
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// Time complexity: O(V + E) in the worst case, where V is the number of operations
+    /// and E is the number of dependencies.
+    /// Space complexity: O(V) for the visited set and traversal stack.
     pub fn would_create_cycle(
         dependencies: &HashMap<usize, Vec<usize>>,
         dependent: usize,
@@ -80,10 +177,52 @@ impl DependencyValidator {
         false
     }
 
-    /// Get the operations in dependency order.
+    /// Returns operations sorted in dependency order using topological sorting.
     ///
-    /// Returns operations sorted such that dependencies come before dependents.
-    /// Operations with no dependencies come first.
+    /// This method performs a topological sort on the dependency graph to determine
+    /// a valid execution order where all dependencies of an operation are completed
+    /// before the operation itself. Operations with no dependencies will appear first
+    /// in the resulting order.
+    ///
+    /// # Arguments
+    ///
+    /// * `dependencies` - A mapping from operation IDs to their list of dependency IDs
+    /// * `operation_count` - The total number of operations (0 to operation_count-1)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Vec<usize>)` containing operation IDs in dependency order, or
+    /// `Err(SaferRingError)` if circular dependencies are detected.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SaferRingError::Io` with `ErrorKind::InvalidInput` if:
+    /// - Circular dependencies are detected in the graph
+    /// - The dependency graph cannot be topologically sorted
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use std::collections::HashMap;
+    /// use safer_ring::ring::batch::validation::DependencyValidator;
+    ///
+    /// let mut deps = HashMap::new();
+    /// deps.insert(2, vec![0, 1]); // Operation 2 depends on 0 and 1
+    /// deps.insert(1, vec![0]);    // Operation 1 depends on 0
+    /// // Operation 0 has no dependencies
+    ///
+    /// let order = DependencyValidator::dependency_order(&deps, 3).unwrap();
+    /// // Valid orders: [0, 1, 2] (dependencies come before dependents)
+    /// assert_eq!(order.first(), Some(&0)); // 0 should come first
+    /// assert!(order.iter().position(|&x| x == 1).unwrap() < 
+    ///         order.iter().position(|&x| x == 2).unwrap()); // 1 before 2
+    /// ```
+    ///
+    /// # Performance
+    ///
+    /// Time complexity: O(V + E) where V is the number of operations and E is
+    /// the number of dependencies.
+    /// Space complexity: O(V) for the visited sets and result vector.
     pub fn dependency_order(
         dependencies: &HashMap<usize, Vec<usize>>,
         operation_count: usize,
@@ -109,7 +248,29 @@ impl DependencyValidator {
         Ok(result)
     }
 
-    /// Visit a node in the dependency graph for topological sorting.
+    /// Recursively visits a node in the dependency graph for topological sorting.
+    ///
+    /// This is a helper method that implements the recursive depth-first search
+    /// component of topological sorting. It visits all dependencies of a node
+    /// before adding the node itself to the result, ensuring proper dependency order.
+    ///
+    /// # Arguments
+    ///
+    /// * `node` - The operation ID to visit
+    /// * `dependencies` - The dependency graph
+    /// * `visited` - Set of permanently visited nodes
+    /// * `temp_visited` - Set of temporarily visited nodes (for cycle detection)
+    /// * `result` - The result vector being built in dependency order
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or `Err(SaferRingError)` if a circular
+    /// dependency is detected.
+    ///
+    /// # Errors
+    ///
+    /// Returns `SaferRingError::Io` with `ErrorKind::InvalidInput` if a circular
+    /// dependency is detected (when a node is found in the temporary visited set).
     fn visit_node(
         node: usize,
         dependencies: &HashMap<usize, Vec<usize>>,
