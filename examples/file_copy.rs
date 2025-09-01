@@ -292,20 +292,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Perform file copy using safer-ring's sequential operation pattern.
+/// Perform file copy using safer-ring's optimal "hot potato" pattern.
 ///
-/// # Educational Overview
+/// # Educational Overview: The OwnedBuffer "Hot Potato" Pattern
 ///
-/// This function demonstrates the correct way to use safer-ring for file I/O operations.
-/// It follows safer-ring's core design principle: **sequential operations with immediate await**.
+/// This function demonstrates the **recommended** way to use safer-ring for file I/O operations.
+/// It showcases the "hot potato" ownership transfer pattern that emerged as the best practice
+/// from extensive benchmarking and real-world usage.
 ///
-/// ## Why Sequential Operations?
+/// ## Why the "Hot Potato" Pattern?
 ///
-/// Unlike other async I/O libraries, safer-ring's `Ring` methods take `&mut self` and return
-/// futures that hold a mutable borrow of the ring. This design provides:
-/// - **Memory Safety**: Prevents data races and use-after-free bugs
-/// - **Zero-Copy Performance**: Direct kernel interaction without copying
-/// - **Predictable Behavior**: No internal locking or complex state management
+/// The `*_owned` methods with `OwnedBuffer` provide:
+/// - **Maximum Safety**: Ownership transfer prevents use-after-free bugs
+/// - **Optimal Performance**: Zero-copy operations with efficient buffer reuse
+/// - **Ergonomic API**: No complex lifetime management or pinning required
+/// - **Loop-Friendly**: Single buffer can be efficiently reused across iterations
+///
+/// ## Performance Context (Important!)
+///
+/// Based on comparative benchmarks:
+/// - `std::fs::copy` is often faster for cached file copies (kernel optimizations)
+/// - `safer-ring` excels when bypassing userspace overhead is critical
+/// - For true device performance, consider O_DIRECT flag (bypasses page cache)
+/// - This pattern is ideal for network I/O, database files, and high-throughput scenarios
 ///
 /// ## The `?.await?` Pattern
 ///
@@ -314,20 +323,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// - `.await`: Waits for the I/O operation to complete
 /// - Second `?`: Handles completion errors (I/O failures, permission denied, etc.)
 ///
-/// ## Buffer Management Strategy
+/// ## Buffer Management Strategy: "Hot Potato" Ownership Transfer
 ///
-/// We use `PinnedBuffer` because:
-/// - Provides stable memory addresses required by io_uring
-/// - Prevents buffer from being moved or freed during I/O
-/// - Supports zero-copy semantics for maximum performance
+/// We use `OwnedBuffer` with ownership transfer because:
+/// - Buffer ownership is "thrown" to the kernel during I/O operations
+/// - Buffer ownership is "caught" back when the operation completes
+/// - Single buffer instance is efficiently reused across all operations
+/// - No pinning, no complex lifetimes, no memory management overhead
 ///
-/// ## Why Not Parallel Operations?
+/// ## Concurrency Model
 ///
-/// The mutable borrow design means only one operation can be in-flight at a time
-/// per ring instance. For parallelism, you would need:
-/// - Multiple `Ring` instances (one per thread/task)
-/// - Batch operations using `Batch` API
-/// - Or the recommended `*_owned` methods with `OwnedBuffer`
+/// This example uses sequential operations by design. For concurrency:
+/// - Use multiple `Ring` instances (one per thread/task) - **recommended approach**
+/// - Each Ring can process operations independently and safely
+/// - This scales perfectly with modern async runtimes like tokio
 #[cfg(target_os = "linux")]
 async fn copy_file_simple(
     ring: &Ring<'_>,
@@ -367,9 +376,15 @@ async fn copy_file_simple(
         }
     });
 
-    println!("🔄 Starting OWNERSHIP TRANSFER copy operation...");
+    println!("🔄 Starting HOT POTATO copy operation...");
     println!(
-        "📚 Educational Note: Using safer-ring's recommended *_owned methods for maximum safety"
+        "📚 Educational Note: Using the 'hot potato' ownership transfer pattern for maximum safety and performance"
+    );
+    println!(
+        "💡 Performance Note: std::fs::copy may be faster for cached files due to kernel optimizations"
+    );
+    println!(
+        "🎯 safer-ring excels at: network I/O, database files, and scenarios requiring userspace bypass"
     );
 
     // Create a single, reusable OwnedBuffer for the entire copy operation.
@@ -381,37 +396,37 @@ async fn copy_file_simple(
     while offset < file_size {
         let chunk_size = std::cmp::min(config.buffer_size as u64, file_size - offset);
 
-        println!("📖 Reading {chunk_size} bytes at offset {offset} (ownership transfer)");
+        println!("📖 Reading {chunk_size} bytes at offset {offset} (hot potato: buffer → kernel)");
 
-        // STEP 1: Perform read using the new `read_at_owned` API
+        // STEP 1: Perform read using the `read_at_owned` API (hot potato pattern)
         // EDUCATIONAL BREAKDOWN:
-        // - `ring.read_at_owned(...)`: Takes ownership of buffer and returns it
-        // - Buffer ownership is transferred to kernel during operation
+        // - `ring.read_at_owned(...)`: "Throws" buffer ownership to kernel
+        // - Buffer is safely managed by kernel during I/O operation
         // - First `?`: Handles submission errors (e.g., ring full, invalid fd)
         // - `.await`: Waits for kernel to complete the I/O operation
         // - Second `?`: Handles I/O completion errors (e.g., file not found, permission denied)
-        // - Returns (bytes_read, buffer) on success - buffer ownership returned!
+        // - Returns (bytes_read, buffer) on success - "catches" buffer ownership back!
         let (bytes_read, returned_buffer) = ring.read_at_owned(source_fd, buffer, offset).await?;
 
-        // Reclaim ownership of the buffer for the next step
+        // "Catch" the buffer back - hot potato pattern in action!
         buffer = returned_buffer;
 
         // STEP 2: Process the read data (only if we actually read something)
         if bytes_read > 0 {
-            println!("✏️  Writing {bytes_read} bytes at offset {offset} (ownership transfer)");
+            println!("✏️  Writing {bytes_read} bytes at offset {offset} (hot potato: buffer → kernel)");
 
-            // STEP 3: Perform write using the new `write_at_owned` API
+            // STEP 3: Perform write using the `write_at_owned` API (hot potato continues)
             // EDUCATIONAL BREAKDOWN:
-            // - `ring.write_at_owned(...)`: Takes ownership and returns buffer
+            // - `ring.write_at_owned(...)`: "Throws" buffer ownership to kernel again
             // - We specify exact length (bytes_read) to write only what was read
-            // - Buffer ownership is transferred again for this operation
+            // - Buffer ownership is transferred for this operation
             // - Same ?.await? pattern for robust error handling
-            // - Returns (bytes_written, buffer) - buffer ownership returned again!
+            // - Returns (bytes_written, buffer) - "catches" buffer ownership back again!
             let (bytes_written, returned_buffer_after_write) = ring
                 .write_at_owned(dest_fd, buffer, offset, bytes_read)
                 .await?;
 
-            // Reclaim ownership of the buffer for the next loop iteration
+            // "Catch" the buffer back for the next loop iteration - hot potato continues!
             buffer = returned_buffer_after_write;
 
             // Verify we wrote all the data we intended to
@@ -436,13 +451,14 @@ async fn copy_file_simple(
         }
     }
 
-    println!("\n✅ Ownership transfer copy operation completed!");
+    println!("\n✅ Hot potato copy operation completed!");
     println!("📚 Educational Summary:");
-    println!("   - Used `read_at_owned`/`write_at_owned` for maximum safety");
-    println!("   - Demonstrated the 'hot potato' ownership transfer pattern");
-    println!("   - Reused single `OwnedBuffer` efficiently across all operations");
-    println!("   - Applied ?.await? pattern for robust error handling");
-    println!("   - No complex lifetime management or pinning required");
+    println!("   ✓ Used `read_at_owned`/`write_at_owned` for maximum safety");
+    println!("   ✓ Demonstrated the 'hot potato' ownership transfer pattern");
+    println!("   ✓ Reused single `OwnedBuffer` efficiently across all operations");
+    println!("   ✓ Applied ?.await? pattern for robust error handling");
+    println!("   ✓ No complex lifetime management or pinning required");
+    println!("   ✓ Buffer ownership: user → kernel → user → kernel → user (hot potato!)");
 
     Ok(stats)
 }

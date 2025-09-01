@@ -1,15 +1,25 @@
-//! # Comprehensive Async/Await Demonstration
+//! # Comprehensive Async/Await Demonstration - BEST PRACTICES EDITION
 //!
 //! This example showcases safer-ring's seamless integration with Rust's async/await
-//! ecosystem, demonstrating various patterns and best practices.
+//! ecosystem, demonstrating the RECOMMENDED patterns discovered through benchmarking.
+//!
+//! ## ⚠️ IMPORTANT: API Recommendation Notice
+//!
+//! This example exclusively uses the **RECOMMENDED** `OwnedBuffer` and `*_owned` methods.
+//! You may see `PinnedBuffer` and methods like `ring.read()` in older examples or
+//! the library's internals. **These APIs are NOT recommended for application code**
+//! due to Rust's lifetime rules that make them fundamentally impossible to use
+//! in loops or for multiple concurrent operations on the same Ring.
+//!
+//! **ALWAYS prefer the `OwnedBuffer` and `*_owned` methods** demonstrated here.
 //!
 //! ## Features Demonstrated
+//! - **Hot Potato Pattern**: Optimal ownership transfer with OwnedBuffer
 //! - **Future Integration**: Native async/await support for all operations
-//! - **Concurrent Operations**: Running multiple I/O operations simultaneously
+//! - **Sequential Safety**: Understanding safer-ring's safety-first design
 //! - **Error Handling**: Proper async error handling patterns
 //! - **Cancellation**: Safe operation cancellation and cleanup
 //! - **Timeouts**: Timeout handling for I/O operations
-//! - **Batch Operations**: Async batch processing with futures
 //!
 //! ## Usage
 //! ```bash
@@ -160,13 +170,14 @@ async fn run_basic_async_demo(
         let temp_file = create_temp_file("Hello, async world!")?;
         let temp_fd = temp_file.as_raw_fd();
 
-        // Sequential read operation using the safer owned API (recommended approach)
+        // Sequential read operation using the RECOMMENDED owned API (hot potato pattern)
         //
         // Key points about safer-ring async operations:
         // 1. OwnedBuffer provides memory safety through ownership transfer
-        // 2. The buffer is "loaned" to the kernel during the operation
-        // 3. We get both the buffer and result back when the operation completes
+        // 2. The buffer is "thrown" to the kernel during the operation (hot potato!)
+        // 3. We "catch" both the buffer and result back when the operation completes
         // 4. This prevents use-after-free bugs that are common with raw io_uring
+        // 5. Single buffer can be efficiently reused across operations
         let buffer = OwnedBuffer::new(config.buffer_size);
         let (bytes_read, read_buffer) = ring.read_owned(temp_fd, buffer).await?;
         // Access the buffer data safely using try_access()
@@ -256,9 +267,10 @@ async fn run_concurrent_demo(
         // 1. Only one operation can be in progress at a time per Ring instance
         // 2. This prevents data races and memory safety issues
         // 3. The borrow checker enforces this at compile time
+        // 4. This is the "hot potato" pattern - one buffer bounces between user and kernel
         //
-        // For true concurrency, you would need multiple Ring instances or use
-        // batch operations (demonstrated later). This design prioritizes safety.
+        // For true concurrency, you would need multiple Ring instances (recommended approach).
+        // Each task/thread gets its own Ring instance. This design prioritizes safety.
         let buffer1 = OwnedBuffer::new(config.buffer_size);
         let (bytes1, _) = ring.read_owned(file1.as_raw_fd(), buffer1).await?;
 
@@ -457,6 +469,8 @@ async fn run_buffer_pool_async_demo(
     config: &AsyncDemoConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("🏊 Buffer Pool Async Integration:");
+    println!("   💡 Note: BufferPool works great with the hot potato pattern!");
+    println!("   📚 Each pooled buffer can be used with *_owned methods for optimal performance");
 
     // Create a buffer pool wrapped in Arc for sharing across async tasks
     // Arc (Atomically Reference Counted) allows multiple ownership of the same data

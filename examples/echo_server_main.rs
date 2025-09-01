@@ -79,11 +79,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("🔌 New connection: fd {client_fd}");
 
-        // Spawn a new task for each client. Each task gets its own Ring.
+        // EDUCATIONAL NOTE: This is the recommended concurrency model for safer-ring.
+        // Each client connection is handled in its own async task, and each task
+        // creates its own `Ring` instance. `Ring` is `Send` but not `Sync`,
+        // so it cannot be shared across threads/tasks. This model avoids locks,
+        // maximizes performance, and scales well with modern async runtimes.
+        //
+        // Key benefits of "one Ring per task" model:
+        // ✓ No contention between tasks - each has dedicated io_uring instance
+        // ✓ Perfect scaling with async runtimes like tokio
+        // ✓ Memory safety guaranteed by Rust's ownership system
+        // ✓ No complex synchronization or locking required
+        // ✓ Each task can use the optimal "hot potato" buffer pattern
         let stats_clone = Arc::clone(&stats);
         let buffer_size = config.buffer_size;
         tokio::spawn(async move {
-            // Each task creates its own Ring instance. This is the key to avoiding borrow conflicts.
+            // Each task creates its own Ring instance. This is the key to avoiding borrow conflicts
+            // and achieving optimal performance. This pattern scales linearly with concurrent connections.
             let mut client_ring = Ring::new(32).expect("Failed to create ring for client task");
             let start_time = Instant::now();
 
@@ -122,7 +134,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Handle a single client connection with comprehensive error handling and statistics
+/// Handle a single client connection with comprehensive error handling and statistics.
+///
+/// # Educational Overview: Echo Server with "Hot Potato" Pattern
+///
+/// This function demonstrates the optimal way to handle client connections using safer-ring's
+/// "hot potato" ownership transfer pattern. Each connection runs in its own task with its
+/// own Ring instance, enabling perfect scaling and memory safety.
+///
+/// ## Key Patterns Demonstrated:
+/// - **Hot Potato Buffer Reuse**: Single buffer efficiently reused for read/write cycles
+/// - **One Ring Per Task**: Each connection gets dedicated io_uring instance
+/// - **Timeout Handling**: Robust timeout management for network operations
+/// - **Error Recovery**: Graceful handling of network errors and client disconnections
 #[cfg(target_os = "linux")]
 async fn handle_client(
     ring: &mut Ring<'_>,
@@ -131,11 +155,15 @@ async fn handle_client(
     stats: &Arc<tokio::sync::Mutex<ServerStats>>,
 ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
     let mut total_bytes_processed = 0u64;
+    
+    // Create a single buffer for this connection that we'll reuse (hot potato pattern)
+    // This is more efficient than creating new buffers for each operation
+    let mut connection_buffer = OwnedBuffer::new(buffer_size);
 
     loop {
         // Receive data from the client with timeout handling
-        let buffer = OwnedBuffer::new(buffer_size);
-        let receive_future = ring.read_owned(client_fd, buffer);
+        // Hot potato: throw buffer ownership to kernel for read operation
+        let receive_future = ring.read_owned(client_fd, connection_buffer);
         let receive_result =
             tokio::time::timeout(tokio::time::Duration::from_secs(30), receive_future).await;
 
@@ -151,6 +179,9 @@ async fn handle_client(
                 break;
             }
         };
+        
+        // Hot potato: catch the buffer back from kernel
+        connection_buffer = buffer_back;
 
         if bytes_received == 0 {
             // Client closed the connection gracefully
@@ -183,16 +214,13 @@ async fn handle_client(
         };
         println!("📥 fd {client_fd}: {data_preview}");
 
-        // Echo the data back to the client
-        // Create echo buffer with just the data we received
-        let echo_data = if let Some(guard) = buffer_back.try_access() {
-            guard[..bytes_received].to_vec()
-        } else {
-            return Err("Buffer not accessible for echo".into());
-        };
-
-        let echo_buffer = OwnedBuffer::from_slice(&echo_data);
-        let (bytes_sent, _buffer_returned) = ring.write_owned(client_fd, echo_buffer).await?;
+        // Echo the data back to the client using the same buffer (hot potato pattern)
+        // We reuse the same buffer that just received data - this is the most efficient approach
+        // Hot potato: throw buffer ownership to kernel for write operation
+        let (bytes_sent, buffer_returned) = ring.write_owned(client_fd, connection_buffer).await?;
+        
+        // Hot potato: catch the buffer back from kernel for next iteration
+        connection_buffer = buffer_returned;
 
         // Update send statistics
         {

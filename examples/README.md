@@ -1,20 +1,27 @@
 # Safer-Ring Examples
 
-This directory contains comprehensive examples demonstrating the capabilities and best practices of the safer-ring library. Each example showcases different aspects of high-performance, memory-safe io_uring operations.
+This directory contains comprehensive examples demonstrating the **recommended patterns** discovered through extensive benchmarking and real-world usage. Each example showcases the optimal "hot potato" ownership transfer pattern and other best practices for memory-safe io_uring operations.
+
+## ⚠️ IMPORTANT: API Recommendation Notice
+
+All examples in this directory use the **RECOMMENDED** `OwnedBuffer` and `*_owned` methods. You may encounter `PinnedBuffer` and methods like `ring.read()` in older documentation or library internals. **These APIs are NOT recommended for application code** due to Rust's lifetime rules that make them impossible to use in realistic loops or concurrent scenarios.
+
+**ALWAYS prefer the `OwnedBuffer` and `*_owned` methods** demonstrated in these examples.
 
 ## 📚 Available Examples
 
 ### 🌐 Network Operations
 
-#### `echo_server.rs` - TCP Echo Server
-A high-performance TCP echo server demonstrating basic network operations.
+#### `echo_server_main.rs` - TCP Echo Server with Concurrency Model
+A high-performance TCP echo server demonstrating the "one Ring per task" concurrency model.
 
 **Features:**
-- Concurrent connection handling
+- "One Ring per task" concurrency model (recommended approach)
+- Hot potato buffer reuse within each connection
+- Detailed concurrency model documentation
 - Real-time statistics and monitoring
 - Graceful shutdown handling
-- Comprehensive error handling
-- Performance metrics
+- Educational content about why this pattern scales perfectly
 
 **Usage:**
 ```bash
@@ -46,15 +53,20 @@ cargo run --example https_server -- --cert cert.pem --key key.pem
 
 ### 💾 File Operations
 
-#### `file_copy.rs` - Zero-Copy File Operations
-High-performance file copying using zero-copy operations and buffer pooling.
+#### `file_copy.rs` - Hot Potato File Operations
+High-performance file copying using the optimal "hot potato" ownership transfer pattern.
 
 **Features:**
-- Zero-copy file operations
-- Buffer pool integration
-- Progress tracking and statistics
-- Parallel I/O operations
-- Copy verification
+- Hot potato ownership transfer pattern (recommended approach)
+- Single buffer efficiently reused across all operations
+- Performance context: when safer-ring excels vs std::fs::copy
+- Educational documentation about buffer ownership flow
+- Copy verification and comprehensive error handling
+
+**Performance Notes:**
+- `std::fs::copy` may be faster for cached files due to kernel optimizations
+- safer-ring excels at network I/O, database files, and userspace bypass scenarios
+- Consider O_DIRECT for true device performance
 
 **Usage:**
 ```bash
@@ -70,15 +82,16 @@ cargo run --example file_copy -- source.txt dest.txt --parallel 4
 
 ### 🔄 Async Operations
 
-#### `async_demo.rs` - Comprehensive Async/Await Demo
-Demonstrates various async patterns and integration with Rust's async ecosystem.
+#### `async_demo.rs` - Best Practices Async Demo
+Demonstrates the RECOMMENDED async patterns with clear API guidance.
 
 **Features:**
-- Sequential and concurrent async operations
+- Hot potato pattern with OwnedBuffer (recommended approach)
+- Clear deprecation notices for PinnedBuffer APIs
+- Sequential safety model explanation
 - Error handling in async contexts
 - Timeout and cancellation patterns
-- Batch operation processing
-- Buffer pool async integration
+- Educational content about why certain APIs are preferred
 
 **Usage:**
 ```bash
@@ -158,15 +171,16 @@ cargo run --example completion_demo
 - **Predictable**: No GC pauses or allocation spikes
 - **Scalable**: Performance scales linearly with cores
 
-## 🛡️ Safety Features
+## 🛡️ Safety Features & Best Practices
 
-All examples demonstrate safer-ring's safety guarantees:
+All examples demonstrate safer-ring's safety guarantees using the RECOMMENDED patterns:
 
-- **Memory Safety**: No use-after-free or buffer overruns
-- **Type Safety**: Compile-time state machine enforcement
-- **Lifetime Safety**: Buffers guaranteed to outlive operations
-- **Concurrency Safety**: Thread-safe buffer sharing
+- **Hot Potato Pattern**: Ownership transfer prevents use-after-free bugs
+- **OwnedBuffer API**: No complex lifetime management required
+- **One Ring Per Task**: Perfect scaling without synchronization overhead
+- **Sequential Safety**: Borrow checker enforces safe operation ordering
 - **Resource Safety**: Automatic cleanup on errors
+- **Performance Context**: Clear guidance on when safer-ring excels vs alternatives
 
 ## 🔧 Platform Requirements
 
@@ -228,22 +242,22 @@ dd if=/dev/zero of=large_test.bin bs=1M count=1000
 time cargo run --example file_copy -- large_test.bin copy_test.bin --parallel 8
 ```
 
-## 📖 Learning Path
+## 📖 Learning Path - Best Practices Edition
 
-### Beginner
-1. Start with `async_demo.rs` to understand basic concepts
-2. Try `buffer_pool_demo.rs` for memory management
-3. Explore `registry_demo.rs` for resource management
+### Beginner: Understanding the Fundamentals
+1. **Start with `async_demo.rs`** - Learn the hot potato pattern and why OwnedBuffer is recommended
+2. **Read the API guidance** - Understand why PinnedBuffer is not recommended
+3. **Try `buffer_pool_demo.rs`** - See how buffer pools work with the hot potato pattern
 
-### Intermediate
-1. Build the `echo_server.rs` for network programming
-2. Implement file operations with `file_copy.rs`
-3. Study concurrent patterns in examples
+### Intermediate: Real-World Applications
+1. **Build `echo_server_main.rs`** - Learn the "one Ring per task" concurrency model
+2. **Implement `file_copy.rs`** - Understand performance context and when safer-ring excels
+3. **Study the ownership patterns** - Master the hot potato ownership transfer
 
-### Advanced
-1. Deploy the `https_server.rs` with real certificates
-2. Optimize performance using profiling tools
-3. Extend examples for your specific use cases
+### Advanced: Production Deployment
+1. **Deploy `https_server.rs`** - Apply patterns to real TLS workloads
+2. **Benchmark your use case** - Understand performance characteristics
+3. **Extend patterns** - Apply hot potato and one-Ring-per-task to your applications
 
 ## 🤝 Contributing
 
@@ -255,26 +269,37 @@ When adding new examples:
 4. **Performance**: Include performance considerations and metrics
 5. **Testing**: Provide clear testing instructions
 
-### Example Template
+### Example Template - Best Practices Edition
 ```rust
-//! # Example Title
+//! # Example Title - BEST PRACTICES EDITION
 //!
-//! Brief description of what this example demonstrates.
+//! Brief description demonstrating RECOMMENDED patterns.
+//!
+//! ## ⚠️ IMPORTANT: API Recommendation Notice
+//!
+//! This example uses the **RECOMMENDED** `OwnedBuffer` and `*_owned` methods.
+//! Avoid `PinnedBuffer` and `ring.read()` - they're not suitable for application code.
 //!
 //! ## Features Demonstrated
-//! - Feature 1: Description
-//! - Feature 2: Description
+//! - Hot Potato Pattern: Optimal ownership transfer with OwnedBuffer
+//! - Feature 2: Description with best practice context
 //!
 //! ## Usage
 //! ```bash
 //! cargo run --example example_name
 //! ```
 
-use safer_ring::*;
+use safer_ring::{OwnedBuffer, Ring}; // Use specific imports, prefer OwnedBuffer
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Implementation with comprehensive comments
+    // Implementation using hot potato pattern with comprehensive educational comments
+    let ring = Ring::new(32)?;
+    let buffer = OwnedBuffer::new(4096); // Prefer OwnedBuffer
+    
+    // Hot potato: throw buffer to kernel, catch it back
+    let (result, buffer_back) = ring.some_owned_operation(fd, buffer).await?;
+    
     Ok(())
 }
 ```
