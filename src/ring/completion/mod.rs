@@ -127,7 +127,7 @@ impl<'ring> Ring<'ring> {
         // Track polling for debugging
         static POLL_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
         let count = POLL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if count % 1000 == 0 {
+        if count.is_multiple_of(1000) {
             eprintln!("[DEBUG] try_complete_by_id called {count} times for op {operation_id}");
         }
 

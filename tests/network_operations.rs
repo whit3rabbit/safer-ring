@@ -182,7 +182,7 @@ async fn test_recv_operation() -> Result<(), Box<dyn std::error::Error + Send + 
 }
 
 #[cfg(target_os = "linux")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (listener, port) = create_test_listener()?;
     let listener_fd = listener.as_raw_fd();
@@ -202,7 +202,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     // Server logic - Use Box::leak() to solve lifetime issues
     let ring1 = Ring::new(32)?;
     let ring1: &'static Ring = Box::leak(Box::new(ring1));
-    let client_fd = timeout(Duration::from_secs(10), ring1.accept_safe(listener_fd)).await??;
+    let client_fd = timeout(Duration::from_secs(5), ring1.accept_safe(listener_fd)).await??;
 
     // Use a separate ring for recv/send operations
     let ring2 = Ring::new(32)?;
@@ -214,7 +214,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
 
     // Receive data
     let (bytes_received, received_slice) = timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(5),
         ring2.recv(client_fd, recv_buffer.as_mut_slice())?,
     )
     .await??;
@@ -226,7 +226,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
     let send_buffer = PinnedBuffer::from_slice(&received_data);
     let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
     let (bytes_sent, _) = timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(5),
         ring3.send(client_fd, send_buffer.as_mut_slice())?,
     )
     .await??;
@@ -245,7 +245,7 @@ async fn test_network_echo_server() -> Result<(), Box<dyn std::error::Error + Se
 }
 
 #[cfg(target_os = "linux")]
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_multiple_concurrent_connections(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (listener, port) = create_test_listener()?;
@@ -274,7 +274,7 @@ async fn test_multiple_concurrent_connections(
 
     for _ in 0..NUM_CONNECTIONS {
         let client_fd = timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(5),
             accept_ring.accept_safe(listener_fd),
         )
         .await??;
@@ -289,7 +289,7 @@ async fn test_multiple_concurrent_connections(
 
         // Receive data
         let (bytes_received, received_slice) = timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(5),
             conn_ring_recv.recv(client_fd, recv_buffer.as_mut_slice())?,
         )
         .await??;
@@ -301,7 +301,7 @@ async fn test_multiple_concurrent_connections(
         let send_buffer = PinnedBuffer::from_slice(&received_data);
         let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
         let (bytes_sent, _) = timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(5),
             conn_ring_send.send(client_fd, send_buffer.as_mut_slice())?,
         )
         .await??;
@@ -351,8 +351,9 @@ async fn test_network_send_error_handling() -> Result<(), Box<dyn std::error::Er
     let send_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(send_buffer));
 
     // Test send operation with an invalid file descriptor
-    let send_result = ring.send(invalid_fd, send_buffer.as_mut_slice())?.await;
-    assert!(send_result.is_err(), "send with invalid fd should fail");
+    // The error should occur immediately during the send call, not during await
+    let send_result = ring.send(invalid_fd, send_buffer.as_mut_slice());
+    assert!(send_result.is_err(), "send with invalid fd should fail immediately");
 
     // No need for std::mem::forget() - Ring is already leaked
     Ok(())
@@ -371,8 +372,9 @@ async fn test_network_recv_error_handling() -> Result<(), Box<dyn std::error::Er
     let recv_buffer: &'static mut PinnedBuffer<_> = Box::leak(Box::new(recv_buffer));
 
     // Test recv operation with an invalid file descriptor
-    let recv_result = ring.recv(invalid_fd, recv_buffer.as_mut_slice())?.await;
-    assert!(recv_result.is_err(), "recv with invalid fd should fail");
+    // The error should occur immediately during the recv call, not during await
+    let recv_result = ring.recv(invalid_fd, recv_buffer.as_mut_slice());
+    assert!(recv_result.is_err(), "recv with invalid fd should fail immediately");
 
     // No need for std::mem::forget() - Ring is already leaked
     Ok(())
