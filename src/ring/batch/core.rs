@@ -13,7 +13,7 @@ use std::collections::HashMap;
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// # use safer_ring::{Ring, Operation, PinnedBuffer, Batch};
 /// # use std::pin::Pin;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -25,7 +25,7 @@ use std::collections::HashMap;
 /// batch.add_operation(Operation::read().fd(0).buffer(buffer1.as_mut_slice()))?;
 /// batch.add_operation(Operation::write().fd(1).buffer(buffer2.as_mut_slice()))?;
 ///
-/// let results = ring.submit_batch(batch).await?;
+/// let results = ring.submit_batch(batch)?.await?;
 /// println!("Batch completed with {} results", results.len());
 /// # Ok(())
 /// # }

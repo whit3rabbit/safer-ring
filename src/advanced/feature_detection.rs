@@ -813,7 +813,7 @@ impl DirectProbeDetector {
     /// ```rust,no_run
     /// # #[cfg(target_os = "linux")]
     /// # {
-    /// use safer_ring::advanced::DirectProbeDetector;
+    /// use safer_ring::advanced::feature_detection::DirectProbeDetector;
     ///
     /// match DirectProbeDetector::new() {
     ///     Ok(detector) => {
@@ -856,8 +856,9 @@ impl DirectProbeDetector {
     /// ```rust,no_run
     /// # #[cfg(target_os = "linux")]
     /// # {
-    /// use safer_ring::advanced::DirectProbeDetector;
+    /// use safer_ring::advanced::feature_detection::DirectProbeDetector;
     ///
+    /// # fn main() -> Result<(), safer_ring::error::SaferRingError> {
     /// let detector = DirectProbeDetector::new()?;
     /// let features = detector.probe_kernel_features();
     ///
@@ -867,7 +868,8 @@ impl DirectProbeDetector {
     /// if features.buffer_selection {
     ///     println!("Buffer selection is supported");
     /// }
-    /// # Ok::<(), safer_ring::error::SaferRingError>(())
+    /// # Ok(())
+    /// # }
     /// # }
     /// ```
     pub fn probe_kernel_features(&self) -> AvailableFeatures {

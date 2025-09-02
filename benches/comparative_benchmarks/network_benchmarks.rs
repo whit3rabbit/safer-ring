@@ -70,9 +70,7 @@ fn bench_safer_ring_pseudo_io(
                         let (bytes_read, echo_buffer) = match result {
                             Ok(data) => data,
                             Err(e) => {
-                                eprintln!(
-                                    "Read operation {i} failed with fd {zero_fd}: {e:?}"
-                                );
+                                eprintln!("Read operation {i} failed with fd {zero_fd}: {e:?}");
                                 // Try to continue with remaining operations
                                 continue;
                             }
@@ -134,9 +132,7 @@ fn bench_raw_io_uring_pseudo_io(
                         let bytes_read = match read_result {
                             Ok(bytes) => bytes,
                             Err(e) => {
-                                eprintln!(
-                                    "Raw read operation {i} failed with fd {zero_fd}: {e:?}"
-                                );
+                                eprintln!("Raw read operation {i} failed with fd {zero_fd}: {e:?}");
                                 continue;
                             }
                         };

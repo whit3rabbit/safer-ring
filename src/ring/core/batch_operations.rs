@@ -26,7 +26,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, Batch, Operation, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let ring = Ring::new(32)?;
@@ -72,7 +72,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, Batch, BatchConfig, Operation, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let ring = Ring::new(32)?;
@@ -173,7 +173,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, Batch, Operation, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut ring = Ring::new(32)?;

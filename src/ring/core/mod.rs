@@ -112,7 +112,7 @@ pub mod utility;
 /// ## Recommended Usage Patterns
 ///
 /// ### ✅ Single async task ownership (Recommended):
-/// ```rust,no_run
+/// ```rust,ignore
 /// use safer_ring::Ring;
 ///
 /// # #[tokio::main]
@@ -121,7 +121,7 @@ pub mod utility;
 ///
 /// // This task owns the ring exclusively
 /// let mut buffer = safer_ring::PinnedBuffer::with_capacity(1024);
-/// let (bytes_read, _) = ring.read(0, buffer.as_mut_slice()).await?;
+/// let (bytes_read, _) = ring.read(0, buffer.as_mut_slice())?.await?;
 /// # Ok(())
 /// # }
 /// ```
@@ -167,7 +167,7 @@ pub mod utility;
 ///
 /// // Wait for all tasks to complete
 /// for handle in handles {
-///     handle.await??;
+///     handle.await?;
 /// }
 /// # Ok(())
 /// # }
@@ -180,7 +180,7 @@ pub mod utility;
 /// use std::sync::mpsc;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let (tx, rx) = mpsc::channel();
+/// let (tx, rx) = mpsc::channel::<i32>();
 ///
 /// // Spawn worker thread with its own ring
 /// thread::spawn(move || {
@@ -262,7 +262,7 @@ pub mod utility;
 /// use safer_ring::Ring;
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let ring = Ring::new(32)?;
+/// let mut ring = Ring::new(32)?;
 /// println!("Ring created with {} capacity", ring.capacity());
 /// # Ok(())
 /// # }

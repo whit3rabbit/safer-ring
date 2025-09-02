@@ -69,7 +69,7 @@ impl IoUringBackend {
     /// # use safer_ring::backend::io_uring::IoUringBackend;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let backend = IoUringBackend::new(32)?;
-    /// println!("Created io_uring backend with capacity: {}", backend.capacity());
+    /// println!("Created io_uring backend with 32 entries");
     /// # Ok(())
     /// # }
     /// ```

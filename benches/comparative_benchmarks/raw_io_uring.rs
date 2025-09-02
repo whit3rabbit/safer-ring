@@ -36,9 +36,10 @@ pub mod linux {
             // Direct submission without safety checks for maximum performance
             unsafe {
                 let entry = read_e.build().user_data(0x42);
-                self.ring.submission().push(&entry).map_err(|_| {
-                    std::io::Error::other("submission queue full")
-                })?;
+                self.ring
+                    .submission()
+                    .push(&entry)
+                    .map_err(|_| std::io::Error::other("submission queue full"))?;
             }
 
             self.ring.submit_and_wait(1)?;
@@ -67,9 +68,10 @@ pub mod linux {
 
             unsafe {
                 let entry = write_e.build().user_data(0x43);
-                self.ring.submission().push(&entry).map_err(|_| {
-                    std::io::Error::other("submission queue full")
-                })?;
+                self.ring
+                    .submission()
+                    .push(&entry)
+                    .map_err(|_| std::io::Error::other("submission queue full"))?;
             }
 
             self.ring.submit_and_wait(1)?;

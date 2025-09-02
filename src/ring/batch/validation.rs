@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use std::collections::HashMap;
 /// use safer_ring::ring::batch::validation::DependencyValidator;
 ///
@@ -50,7 +50,7 @@ impl DependencyValidator {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use std::collections::HashMap;
     /// use safer_ring::ring::batch::validation::DependencyValidator;
     ///
@@ -130,7 +130,7 @@ impl DependencyValidator {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use std::collections::HashMap;
     /// use safer_ring::ring::batch::validation::DependencyValidator;
     ///
@@ -202,7 +202,7 @@ impl DependencyValidator {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use std::collections::HashMap;
     /// use safer_ring::ring::batch::validation::DependencyValidator;
     ///

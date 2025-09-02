@@ -65,6 +65,17 @@ impl<'ring> Ring<'ring> {
 
     /// Send data on a socket.
     ///
+    /// ⚠️ **NOT RECOMMENDED**: This API is fundamentally limited and should not be used in application code.
+    /// **Always use [`OwnedBuffer`](crate::OwnedBuffer) with the ownership transfer pattern instead.**
+    ///
+    /// This pin-based API returns a `Future` that holds a mutable borrow of the `Ring`.
+    /// Due to Rust's lifetime rules, this makes it **impossible to use this method in a loop**
+    /// or for multiple concurrent operations on the same `Ring`, as the borrow checker will
+    /// prevent subsequent calls.
+    ///
+    /// This method exists for educational purposes and for building low-level abstractions.
+    /// For all practical application logic, use the "hot potato" pattern with [`OwnedBuffer`](crate::OwnedBuffer).
+    ///
     /// This method sends data from a buffer to a connected socket and
     /// returns a future that resolves to the number of bytes sent and
     /// the buffer ownership.
@@ -134,6 +145,17 @@ impl<'ring> Ring<'ring> {
     }
 
     /// Receive data from a socket.
+    ///
+    /// ⚠️ **NOT RECOMMENDED**: This API is fundamentally limited and should not be used in application code.
+    /// **Always use [`OwnedBuffer`](crate::OwnedBuffer) with the ownership transfer pattern instead.**
+    ///
+    /// This pin-based API returns a `Future` that holds a mutable borrow of the `Ring`.
+    /// Due to Rust's lifetime rules, this makes it **impossible to use this method in a loop**
+    /// or for multiple concurrent operations on the same `Ring`, as the borrow checker will
+    /// prevent subsequent calls.
+    ///
+    /// This method exists for educational purposes and for building low-level abstractions.
+    /// For all practical application logic, use the "hot potato" pattern with [`OwnedBuffer`](crate::OwnedBuffer).
     ///
     /// This method receives data from a connected socket into a buffer and
     /// returns a future that resolves to the number of bytes received and

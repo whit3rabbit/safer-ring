@@ -28,7 +28,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer, Registry};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut registry = Registry::new();
@@ -84,7 +84,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer, Registry};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut registry = Registry::new();

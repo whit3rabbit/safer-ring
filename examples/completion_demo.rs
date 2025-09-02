@@ -191,9 +191,7 @@ async fn demonstrate_single_operations(
         match timeout_result {
             Ok(Ok((bytes_read, returned_buffer))) => {
                 let elapsed = start_time.elapsed();
-                println!(
-                    "   ✅ Read completed: {bytes_read} bytes in {elapsed:?}"
-                );
+                println!("   ✅ Read completed: {bytes_read} bytes in {elapsed:?}");
 
                 // Show the hot potato pattern - we got our buffer back!
                 println!("   🔄 Buffer returned via hot potato pattern");
@@ -278,9 +276,7 @@ async fn demonstrate_concurrent_operations(
                     .await
                     .map_err(|e| format!("Read failed: {e}"))?;
 
-                println!(
-                    "   ✅ Task {task_id} completed: {bytes_read} bytes read"
-                );
+                println!("   ✅ Task {task_id} completed: {bytes_read} bytes read");
 
                 // Clean up
                 std::fs::remove_file(&temp_path).ok();

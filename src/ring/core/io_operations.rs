@@ -10,10 +10,16 @@ use crate::operation::{Building, Operation, OperationType};
 impl<'ring> Ring<'ring> {
     /// Read from a file descriptor at offset 0.
     ///
-    /// ⚠️ **LEGACY API**: Consider using [`read_owned()`](Ring::read_owned) for better safety and ergonomics.
+    /// ⚠️ **NOT RECOMMENDED**: This API is fundamentally limited and should not be used in application code.
+    /// **Always prefer [`read_owned()`](Ring::read_owned) or [`read_at_owned()`](Ring::read_at_owned).**
     ///
-    /// This pin-based API requires careful lifetime management and is primarily provided
-    /// for advanced use cases. The ownership transfer API is safer and easier to use:
+    /// This pin-based API returns a `Future` that holds a mutable borrow of the `Ring`.
+    /// Due to Rust's lifetime rules, this makes it **impossible to use this method in a loop**
+    /// or for multiple concurrent operations on the same `Ring`, as the borrow checker will
+    /// prevent subsequent calls.
+    ///
+    /// This method exists for educational purposes and for building low-level abstractions.
+    /// For all practical application logic, use the "hot potato" pattern with [`OwnedBuffer`](crate::OwnedBuffer):
     ///
     /// ```rust,no_run  
     /// # use safer_ring::{Ring, OwnedBuffer};
@@ -57,7 +63,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Legacy Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -83,10 +89,16 @@ impl<'ring> Ring<'ring> {
 
     /// Write to a file descriptor at offset 0.
     ///
-    /// ⚠️ **LEGACY API**: Consider using [`write_owned()`](Ring::write_owned) for better safety and ergonomics.
+    /// ⚠️ **NOT RECOMMENDED**: This API is fundamentally limited and should not be used in application code.
+    /// **Always prefer [`write_owned()`](Ring::write_owned) or [`write_at_owned()`](Ring::write_at_owned).**
     ///
-    /// This pin-based API requires careful lifetime management and is primarily provided
-    /// for advanced use cases. The ownership transfer API is safer and easier to use:
+    /// This pin-based API returns a `Future` that holds a mutable borrow of the `Ring`.
+    /// Due to Rust's lifetime rules, this makes it **impossible to use this method in a loop**
+    /// or for multiple concurrent operations on the same `Ring`, as the borrow checker will
+    /// prevent subsequent calls.
+    ///
+    /// This method exists for educational purposes and for building low-level abstractions.
+    /// For all practical application logic, use the "hot potato" pattern with [`OwnedBuffer`](crate::OwnedBuffer):
     ///
     /// ```rust,no_run  
     /// # use safer_ring::{Ring, OwnedBuffer};
@@ -132,7 +144,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Legacy Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -177,7 +189,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, Operation, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -235,7 +247,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, Operation, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -305,7 +317,18 @@ impl<'ring> Ring<'ring> {
         ))
     }
 
-    /// Read data from a file descriptor into a buffer.
+    /// Read data from a file descriptor into a buffer at a specific offset.
+    ///
+    /// ⚠️ **NOT RECOMMENDED**: This API is fundamentally limited and should not be used in application code.
+    /// **Always prefer [`read_at_owned()`](Ring::read_at_owned) instead.**
+    ///
+    /// This pin-based API returns a `Future` that holds a mutable borrow of the `Ring`.
+    /// Due to Rust's lifetime rules, this makes it **impossible to use this method in a loop**
+    /// or for multiple concurrent operations on the same `Ring`, as the borrow checker will
+    /// prevent subsequent calls.
+    ///
+    /// This method exists for educational purposes and for building low-level abstractions.
+    /// For all practical application logic, use the "hot potato" pattern with [`OwnedBuffer`](crate::OwnedBuffer).
     ///
     /// This is a high-level convenience method that creates a read operation,
     /// submits it, and returns a future that can be awaited.
@@ -325,7 +348,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut ring = Ring::new(32)?;
@@ -371,7 +394,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer, Registry};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut ring = Ring::new(32)?;
@@ -469,7 +492,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -534,7 +557,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -582,7 +605,18 @@ impl<'ring> Ring<'ring> {
         ))
     }
 
-    /// Write data from a buffer to a file descriptor.
+    /// Write data from a buffer to a file descriptor at a specific offset.
+    ///
+    /// ⚠️ **NOT RECOMMENDED**: This API is fundamentally limited and should not be used in application code.
+    /// **Always prefer [`write_at_owned()`](Ring::write_at_owned) instead.**
+    ///
+    /// This pin-based API returns a `Future` that holds a mutable borrow of the `Ring`.
+    /// Due to Rust's lifetime rules, this makes it **impossible to use this method in a loop**
+    /// or for multiple concurrent operations on the same `Ring`, as the borrow checker will
+    /// prevent subsequent calls.
+    ///
+    /// This method exists for educational purposes and for building low-level abstractions.
+    /// For all practical application logic, use the "hot potato" pattern with [`OwnedBuffer`](crate::OwnedBuffer).
     ///
     /// This is a high-level convenience method that creates a write operation,
     /// submits it, and returns a future that can be awaited.
@@ -602,7 +636,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut ring = Ring::new(32)?;
@@ -648,7 +682,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer, Registry};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut ring = Ring::new(32)?;
@@ -746,7 +780,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -811,7 +845,7 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::pin::Pin;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {

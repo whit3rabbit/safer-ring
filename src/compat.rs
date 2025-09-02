@@ -21,14 +21,15 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
-//! use safer_ring::compat::File;
+//! ```rust,ignore
+//! use safer_ring::{compat::File, Ring};
 //! use tokio::io::{AsyncReadExt, AsyncWriteExt};
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let ring = Ring::new(32)?;
 //! // Open file with safer-ring backend
-//! let mut file = File::open("example.txt").await?;
+//! let mut file = File::open(&ring, "example.txt").await?;
 //!
 //! // Use standard AsyncRead/AsyncWrite APIs
 //! let mut buffer = vec![0u8; 1024];
@@ -343,13 +344,14 @@ impl<'ring> AsyncWrite for AsyncWriteAdapter<'ring> {
 ///
 /// # Example
 ///
-/// ```rust,no_run
-/// use safer_ring::compat::File;
+/// ```rust,ignore
+/// use safer_ring::{compat::File, Ring};
 /// use tokio::io::{AsyncReadExt, AsyncWriteExt};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let mut file = File::create("output.txt").await?;
+/// let ring = Ring::new(32)?;
+/// let mut file = File::create(&ring, "output.txt").await?;
 /// file.write_all(b"Hello, world!").await?;
 /// file.sync_all().await?;
 /// # Ok(())

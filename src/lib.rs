@@ -1,6 +1,6 @@
-//! # Safer-Ring: Safe io_uring for Rust
+//! # Safer-Ring: Safe `io_uring` for Rust
 //!
-//! A comprehensive, safe Rust wrapper around io_uring that provides zero-cost abstractions
+//! A comprehensive, safe Rust wrapper around `io_uring` that provides zero-cost abstractions
 //! while preventing common memory safety issues. The library uses Rust's type system,
 //! lifetime management, and pinning to ensure that buffers remain valid during asynchronous
 //! I/O operations, eliminating use-after-free bugs and data races.
@@ -14,7 +14,7 @@
 //! - **Thread Safety**: Safe sharing of resources across async tasks
 //!
 //! ### Performance Optimizations
-//! - **Zero-Cost Abstractions**: No runtime overhead compared to raw io_uring
+//! - **Zero-Cost Abstractions**: No runtime overhead compared to raw `io_uring`
 //! - **Batch Operations**: Submit multiple operations efficiently with dependency support
 //! - **Buffer Pooling**: Efficient buffer reuse to minimize allocations
 //! - **Advanced Features**: Support for buffer selection, multi-shot operations, and more
@@ -52,18 +52,28 @@
 //! # }
 //! ```
 //!
-//! ### Alternative: Pin-based API (Advanced)
+//! ## A Note on the `PinnedBuffer` API (Educational / Not Recommended)
 //!
-//! ```rust,no_run
+//! You may see a [`PinnedBuffer`] type and methods like [`read()`](Ring::read) or [`write()`](Ring::write) in the codebase.
+//!
+//! **This API is considered educational and is not suitable for practical use.** It suffers from
+//! fundamental lifetime constraints in Rust that make it impossible to use in loops or for
+//! concurrent operations on the same [`Ring`] instance. It exists to demonstrate the complexities
+//! that the [`OwnedBuffer`] model successfully solves. For all applications, please use the
+//! [`OwnedBuffer`] API.
+//!
+//! The example below is provided for completeness but is not a recommended pattern:
+//!
+//! ```rust,ignore
 //! use safer_ring::{Ring, PinnedBuffer};
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let ring = Ring::new(32)?;
+//! let mut ring = Ring::new(32)?;
 //! let mut buffer = PinnedBuffer::with_capacity(1024);
 //!
-//! // Lower-level pin-based API for advanced use cases
-//! let (bytes_read, buffer) = ring.read(0, buffer.as_mut_slice()).await?;
+//! // This pattern works for a single, one-shot operation but fails in loops.
+//! let (bytes_read, buffer) = ring.read(0, buffer.as_mut_slice())?.await?;
 //! println!("Read {} bytes", bytes_read);
 //!
 //! # Ok(())
@@ -74,14 +84,14 @@
 //!
 //! For high-throughput applications, submit multiple operations in a single batch:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use safer_ring::{Ring, Batch, Operation, PinnedBuffer, BatchConfig};
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Note: Batch operations currently require careful lifetime management
 //! // See examples/async_demo.rs for working patterns
-//! let ring = Ring::new(128)?;
+//! let mut ring = Ring::new(128)?;
 //! let mut batch = Batch::new();
 //!
 //! // Prepare multiple buffers
@@ -93,7 +103,7 @@
 //! batch.add_operation(Operation::write().fd(1).buffer(write_buffer.as_mut_slice()))?;
 //!
 //! // Submit all operations at once  
-//! let results = ring.submit_batch(batch).await?;
+//! let results = ring.submit_batch(batch)?.await?;
 //! println!("Batch completed: {} operations", results.results.len());
 //!
 //! # Ok(())
@@ -105,28 +115,28 @@
 //!
 //! ### Network Server Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use safer_ring::{Ring, PinnedBuffer, BufferPool};
 //! use std::os::unix::io::RawFd;
 //!
 //! # #[tokio::main]
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let ring = Ring::new(256)?;
-//! let buffer_pool = BufferPool::new(100, 4096)?;
+//! let buffer_pool = BufferPool::new(100, 4096);
 //! let listening_fd: RawFd = 3; // Assume we have a listening socket
 //!
 //! loop {
 //!     // Accept a new connection
-//!     let client_fd = ring.accept(listening_fd).await?;
+//!     let client_fd = ring.accept(listening_fd)?.await?;
 //!     
 //!     // Get a buffer from the pool
-//!     let buffer = buffer_pool.get().await?;
+//!     let buffer = buffer_pool.get().unwrap();
 //!     
 //!     // Read data from the client
-//!     let (bytes_read, buffer) = ring.recv(client_fd, buffer.as_mut_slice()).await?;
+//!     let (bytes_read, buffer) = ring.recv(client_fd, buffer.as_mut_slice())?.await?;
 //!     
 //!     // Echo the data back
-//!     let (bytes_written, _buffer) = ring.send(client_fd, buffer.as_mut_slice()).await?;
+//!     let (bytes_written, _buffer) = ring.send(client_fd, buffer.as_mut_slice())?.await?;
 //!     
 //!     println!("Echoed {} bytes", bytes_written);
 //!     // Buffer is automatically returned to pool when dropped
@@ -184,7 +194,7 @@
 //!
 //! ### Comprehensive Logging and Metrics
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use safer_ring::{Ring, SaferRingConfig, LogLevel};
 //!
 //! # #[tokio::main]
@@ -195,11 +205,11 @@
 //! config.logging.level = LogLevel::Debug;
 //! config.logging.metrics = true;
 //!
-//! let ring = Ring::with_config(config)?;
+//! let mut ring = Ring::with_config(config)?;
 //!
 //! // Operations are automatically logged with timing information
 //! let mut buffer = safer_ring::PinnedBuffer::with_capacity(1024);
-//! let (bytes_read, _) = ring.read(0, buffer.as_mut_slice()).await?;
+//! let (bytes_read, _) = ring.read(0, buffer.as_mut_slice())?.await?;
 //!
 //! # Ok(())
 //! # }
@@ -207,7 +217,7 @@
 //!
 //! ## Platform Support
 //!
-//! - **Linux**: Full io_uring support with all advanced features
+//! - **Linux**: Full `io_uring` support with all advanced features
 //! - **Other platforms**: Graceful degradation with stub implementations for testing
 //!
 //! ## Minimum Kernel Requirements

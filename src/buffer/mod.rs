@@ -1,41 +1,60 @@
-//! Pinned buffer management for safe io_uring operations.
+//! Pinned buffer management for educational and benchmarking purposes.
 //!
-//! This module provides [`PinnedBuffer<T>`] which ensures buffers remain pinned in memory
-//! during io_uring operations, preventing use-after-free bugs and ensuring memory safety.
+//! # ⚠️ Important: PinnedBuffer is NOT for I/O Operations
+//!
+//! **This module provides [`PinnedBuffer<T>`] primarily for educational purposes and allocation benchmarking.**
+//! The `PinnedBuffer` type is fundamentally limited by Rust's lifetime system and **cannot be used**
+//! **for practical I/O operations** such as loops or concurrent operations.
+//!
+//! **For all I/O operations, use [`OwnedBuffer`](crate::OwnedBuffer) with the `*_owned` methods on [`Ring`](crate::Ring).**
 //!
 //! # Key Features
 //!
 //! - **Memory Pinning**: Guarantees stable memory addresses using [`Pin<Box<T>>`]
 //! - **Generation Tracking**: Atomic counters for buffer lifecycle debugging
-//! - **NUMA Awareness**: Platform-specific NUMA-aware allocation (Linux)
-//! - **DMA Optimization**: Page-aligned allocation for optimal hardware performance
+//! - **NUMA Awareness**: Platform-specific NUMA-aware allocation (Linux) - useful for benchmarking
+//! - **DMA Optimization**: Page-aligned allocation for optimal hardware performance - useful for benchmarking
 //! - **Thread Safety**: Safe sharing and transfer between threads
 //!
-//! # Usage Examples
+//! # Valid Usage Examples
 //!
 //! ```rust
 //! use safer_ring::buffer::PinnedBuffer;
 //!
-//! // Create a pinned buffer for I/O operations
-//! let mut buffer = PinnedBuffer::with_capacity(4096);
-//! assert_eq!(buffer.len(), 4096);
+//! // ✅ VALID: Allocation benchmarking
+//! let standard_buffer = PinnedBuffer::with_capacity(4096);
+//! let aligned_buffer = PinnedBuffer::with_capacity_aligned(4096);
+//! let numa_buffer = PinnedBuffer::with_capacity_numa(4096, Some(0));
 //!
-//! // Get a pinned mutable slice for io_uring operations
-//! let pinned_slice = buffer.as_mut_slice();
-//! // This slice can be safely used with io_uring
-//!
-//! // Create from existing data
+//! // ✅ VALID: Single operation, then immediate drop
 //! let data = b"Hello, io_uring!".to_vec();
 //! let buffer = PinnedBuffer::from_vec(data);
 //! assert_eq!(buffer.as_slice(), b"Hello, io_uring!");
 //! ```
 //!
-//! # Safety Considerations
+//! # Invalid Usage (Will Not Compile)
 //!
-//! The pinned buffers in this module are designed to work safely with asynchronous
-//! I/O operations. The pinning guarantees prevent the underlying memory from being
-//! moved or freed while I/O operations are in flight, which is essential for the
-//! zero-copy nature of io_uring.
+//! ```rust,compile_fail
+//! use safer_ring::{Ring, buffer::PinnedBuffer};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut ring = Ring::new(32)?;
+//! let mut buffer = PinnedBuffer::with_capacity(4096);
+//!
+//! // ❌ BROKEN: This will not compile due to lifetime constraints
+//! for _ in 0..2 {
+//!     let (_, buf) = ring.read(0, buffer.as_mut_slice())?.await?;
+//!     buffer = buf;  // Error: ring is still borrowed
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! # The Technical Problem
+//!
+//! Methods like [`Ring::read()`](crate::Ring::read) return futures that hold mutable borrows of both the
+//! [`Ring`](crate::Ring) and buffer for their entire lifetime. Rust's borrow checker prevents
+//! subsequent operations until the borrow is released, making loops and concurrent operations impossible.
 
 /// Memory allocation utilities for creating aligned and optimized buffers.
 ///
@@ -65,22 +84,48 @@ pub use numa::*;
 
 use std::pin::Pin;
 
-/// A buffer that is pinned in memory for io_uring operations.
+/// A buffer that is pinned in memory, primarily for educational purposes.
 ///
-/// This type ensures the underlying buffer cannot be moved in memory while being used
-/// for I/O operations. It uses [`Pin<Box<T>>`] to provide stable memory addresses
-/// required by io_uring's zero-copy semantics.
+/// # ⚠️ FUNDAMENTALLY LIMITED - DO NOT USE FOR I/O OPERATIONS
 ///
-/// # Thread Safety
+/// **This API is considered educational and is not suitable for practical applications involving I/O.**
+/// It suffers from fundamental lifetime constraints in Rust that make it impossible to use in loops
+/// or for multiple concurrent operations on the same [`Ring`](crate::Ring) instance. It exists to
+/// demonstrate the complexities that the [`OwnedBuffer`](crate::OwnedBuffer) model successfully solves.
 ///
-/// `PinnedBuffer<T>` implements `Send` and `Sync` when `T` implements these traits,
-/// making it safe to share across threads and use in async contexts.
+/// **For all applications, you MUST use [`OwnedBuffer`](crate::OwnedBuffer) with the `*_owned` methods on [`Ring`](crate::Ring).**
 ///
-/// # Generation Tracking
+/// ## The Core Problem
 ///
-/// Each buffer includes a [`GenerationCounter`] for lifecycle tracking and debugging.
-/// This helps identify buffer reuse patterns and can assist in detecting potential
-/// use-after-free scenarios during development.
+/// The [`Ring`](crate::Ring) methods that accept `PinnedBuffer` (e.g., [`ring.read()`](crate::Ring::read)) return a `Future` that
+/// holds a mutable borrow on both the [`Ring`](crate::Ring) and the buffer for their entire lifetimes. This
+/// makes it impossible for the borrow checker to allow a second operation in a loop or
+/// concurrently, as the first borrow is never released.
+///
+/// ```rust,compile_fail
+/// use safer_ring::{Ring, PinnedBuffer};
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut ring = Ring::new(32)?;
+/// let mut buffer = PinnedBuffer::with_capacity(1024);
+///
+/// // This fails to compile due to lifetime constraints:
+/// for _ in 0..2 {
+///     let (_, buf) = ring.read(0, buffer.as_mut_slice())?.await?;
+///     buffer = buf;  // Error: cannot use ring again while borrowed
+/// }
+/// # Ok(())
+/// # }
+/// ```
+///
+/// ## When is `PinnedBuffer` useful?
+///
+/// - Benchmarking allocation strategies (e.g., [`with_capacity_aligned`](Self::with_capacity_aligned), [`with_capacity_numa`](Self::with_capacity_numa)).
+/// - Situations where you need a single, one-shot I/O operation and the buffer and ring
+///   will be dropped immediately after.
+/// - As a building block for more complex, `unsafe` abstractions.
+///
+/// For all other cases, and especially for application-level code, **use [`OwnedBuffer`](crate::OwnedBuffer)**.
 ///
 /// # Memory Layout
 ///
@@ -89,22 +134,28 @@ use std::pin::Pin;
 /// - Automatic cleanup when dropped
 /// - Zero-copy semantics for I/O operations
 ///
+/// # Generation Tracking
+///
+/// Each buffer includes a [`GenerationCounter`] for lifecycle tracking and debugging.
+/// This helps identify buffer reuse patterns and can assist in detecting potential
+/// use-after-free scenarios during development.
+///
 /// # Examples
+///
+/// Valid use cases (allocation benchmarking):
 ///
 /// ```rust
 /// use safer_ring::buffer::PinnedBuffer;
 /// use std::pin::Pin;
 ///
-/// // Create a pinned buffer from data
+/// // Benchmarking different allocation strategies
+/// let standard_buffer = PinnedBuffer::with_capacity(4096);
+/// let aligned_buffer = PinnedBuffer::with_capacity_aligned(4096);
+/// let numa_buffer = PinnedBuffer::with_capacity_numa(4096, Some(0));
+///
+/// // Single, one-shot operation (not practical for real apps)
 /// let buffer = PinnedBuffer::new([1, 2, 3, 4]);
-/// assert_eq!(buffer.len(), 4);
-///
-/// // Access the pinned data
 /// let pinned_ref: Pin<&[u8; 4]> = buffer.as_pin();
-///
-/// // Create a dynamic buffer
-/// let mut dynamic = PinnedBuffer::with_capacity(1024);
-/// let slice: Pin<&mut [u8]> = dynamic.as_mut_slice();
 /// ```
 pub struct PinnedBuffer<T: ?Sized> {
     /// Heap-allocated, pinned buffer data - guarantees stable memory address

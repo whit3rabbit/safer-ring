@@ -37,7 +37,7 @@ impl<'ring> Ring<'ring> {
     /// # use safer_ring::Ring;
     /// # #[cfg(target_os = "linux")]
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     ///
     /// // Submit some operations...
     ///
@@ -82,7 +82,7 @@ impl<'ring> Ring<'ring> {
     /// # use safer_ring::Ring;
     /// # #[cfg(target_os = "linux")]
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     ///
     /// // Submit some operations...
     ///
