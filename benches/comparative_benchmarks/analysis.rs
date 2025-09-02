@@ -96,7 +96,7 @@ fn print_performance_summary(system_info: &SystemInfo) {
     println!("=================================");
     println!("System: {}", system_info.kernel_version);
     if let Some(ref uring_ver) = &system_info.io_uring_version {
-        println!("io_uring: {}", uring_ver);
+        println!("io_uring: {uring_ver}");
     }
     println!("CPU: {}", system_info.cpu_info);
     println!("Memory: {}", system_info.memory_info);

@@ -273,11 +273,8 @@ async fn test_multiple_concurrent_connections(
     let mut server_results = Vec::new();
 
     for _ in 0..NUM_CONNECTIONS {
-        let client_fd = timeout(
-            Duration::from_secs(5),
-            accept_ring.accept_safe(listener_fd),
-        )
-        .await??;
+        let client_fd =
+            timeout(Duration::from_secs(5), accept_ring.accept_safe(listener_fd)).await??;
 
         // Use separate leaked rings for each connection to avoid borrow conflicts
         let conn_ring_recv = Ring::new(32)?;
@@ -353,7 +350,10 @@ async fn test_network_send_error_handling() -> Result<(), Box<dyn std::error::Er
     // Test send operation with an invalid file descriptor
     // The error should occur immediately during the send call, not during await
     let send_result = ring.send(invalid_fd, send_buffer.as_mut_slice());
-    assert!(send_result.is_err(), "send with invalid fd should fail immediately");
+    assert!(
+        send_result.is_err(),
+        "send with invalid fd should fail immediately"
+    );
 
     // No need for std::mem::forget() - Ring is already leaked
     Ok(())
@@ -374,7 +374,10 @@ async fn test_network_recv_error_handling() -> Result<(), Box<dyn std::error::Er
     // Test recv operation with an invalid file descriptor
     // The error should occur immediately during the recv call, not during await
     let recv_result = ring.recv(invalid_fd, recv_buffer.as_mut_slice());
-    assert!(recv_result.is_err(), "recv with invalid fd should fail immediately");
+    assert!(
+        recv_result.is_err(),
+        "recv with invalid fd should fail immediately"
+    );
 
     // No need for std::mem::forget() - Ring is already leaked
     Ok(())

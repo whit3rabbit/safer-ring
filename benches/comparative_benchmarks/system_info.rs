@@ -34,7 +34,7 @@ impl SystemInfo {
         );
         println!("🐧 Kernel: {}", self.kernel_version);
         if let Some(ref uring_ver) = self.io_uring_version {
-            println!("⚡ io_uring: {}", uring_ver);
+            println!("⚡ io_uring: {uring_ver}");
         } else {
             println!("⚡ io_uring: Not available or version unknown");
         }
@@ -120,7 +120,7 @@ fn get_memory_info() -> String {
                 .map(|kb| {
                     if let Ok(kb_num) = kb.parse::<u64>() {
                         let gb = kb_num as f64 / 1024.0 / 1024.0;
-                        format!("{:.1} GB", gb)
+                        format!("{gb:.1} GB")
                     } else {
                         kb
                     }

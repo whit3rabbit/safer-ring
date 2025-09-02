@@ -71,8 +71,7 @@ fn bench_safer_ring_pseudo_io(
                             Ok(data) => data,
                             Err(e) => {
                                 eprintln!(
-                                    "Read operation {} failed with fd {}: {:?}",
-                                    i, zero_fd, e
+                                    "Read operation {i} failed with fd {zero_fd}: {e:?}"
                                 );
                                 // Try to continue with remaining operations
                                 continue;
@@ -87,8 +86,7 @@ fn bench_safer_ring_pseudo_io(
                                 }
                                 Err(e) => {
                                     eprintln!(
-                                        "Write operation {} failed with fd {}: {:?}",
-                                        i, null_fd, e
+                                        "Write operation {i} failed with fd {null_fd}: {e:?}"
                                     );
                                     continue;
                                 }
@@ -137,8 +135,7 @@ fn bench_raw_io_uring_pseudo_io(
                             Ok(bytes) => bytes,
                             Err(e) => {
                                 eprintln!(
-                                    "Raw read operation {} failed with fd {}: {:?}",
-                                    i, zero_fd, e
+                                    "Raw read operation {i} failed with fd {zero_fd}: {e:?}"
                                 );
                                 continue;
                             }
@@ -150,8 +147,7 @@ fn bench_raw_io_uring_pseudo_io(
                                 Ok(bytes) => bytes,
                                 Err(e) => {
                                     eprintln!(
-                                        "Raw write operation {} failed with fd {}: {:?}",
-                                        i, null_fd, e
+                                        "Raw write operation {i} failed with fd {null_fd}: {e:?}"
                                     );
                                     continue;
                                 }

@@ -91,7 +91,7 @@ fn bench_safer_ring_file_copy(
                     let (bytes_read, buffer) =
                         match ring.read_at_owned(src_fd, buffer, offset as u64).await {
                             Ok(data) => data,
-                            Err(e) => panic!("Read operation failed at offset {}: {:?}", offset, e),
+                            Err(e) => panic!("Read operation failed at offset {offset}: {e:?}"),
                         };
 
                     if bytes_read == 0 {
@@ -103,7 +103,7 @@ fn bench_safer_ring_file_copy(
                         .await
                     {
                         Ok(data) => data,
-                        Err(e) => panic!("Write operation failed at offset {}: {:?}", offset, e),
+                        Err(e) => panic!("Write operation failed at offset {offset}: {e:?}"),
                     };
 
                     assert_eq!(bytes_read, bytes_written, "Read/write size mismatch");
@@ -197,7 +197,7 @@ fn bench_safer_ring_file_copy_direct(
     size: usize,
 ) {
     // O_DIRECT requires aligned buffer sizes, so we use 4KB chunks minimum
-    let aligned_size = ((size + 4095) / 4096) * 4096;
+    let aligned_size = size.div_ceil(4096) * 4096;
 
     group.bench_with_input(
         BenchmarkId::new("safer_ring_direct", aligned_size),

@@ -192,8 +192,7 @@ async fn demonstrate_single_operations(
             Ok(Ok((bytes_read, returned_buffer))) => {
                 let elapsed = start_time.elapsed();
                 println!(
-                    "   ✅ Read completed: {} bytes in {:?}",
-                    bytes_read, elapsed
+                    "   ✅ Read completed: {bytes_read} bytes in {elapsed:?}"
                 );
 
                 // Show the hot potato pattern - we got our buffer back!
@@ -202,13 +201,13 @@ async fn demonstrate_single_operations(
                 // Access the read data safely
                 if let Some(guard) = returned_buffer.try_access() {
                     let data = String::from_utf8_lossy(&guard[..bytes_read]);
-                    println!("   📄 Read data: '{}'", data);
+                    println!("   📄 Read data: '{data}'");
                 } else {
                     println!("   ⚠️  Buffer not accessible (operation in progress)");
                 }
             }
             Ok(Err(e)) => {
-                println!("   ❌ I/O error: {}", e);
+                println!("   ❌ I/O error: {e}");
             }
             Err(_) => {
                 println!("   ⏰ Operation timed out");
@@ -246,30 +245,30 @@ async fn demonstrate_concurrent_operations(
 
         let task = tokio::spawn(async move {
             // Each task gets its own Ring - this is the recommended pattern!
-            let ring = Ring::new(32).map_err(|e| format!("Failed to create ring: {}", e))?;
+            let ring = Ring::new(32).map_err(|e| format!("Failed to create ring: {e}"))?;
             let buffer = OwnedBuffer::new(buffer_size);
 
-            println!("   🚀 Task {} started with dedicated Ring", task_id);
+            println!("   🚀 Task {task_id} started with dedicated Ring");
 
             if with_files {
                 // Create a unique temporary file for this task
-                let temp_path = format!("/tmp/safer_ring_task_{}", task_id);
+                let temp_path = format!("/tmp/safer_ring_task_{task_id}");
                 let mut temp_file = OpenOptions::new()
                     .create(true)
                     .write(true)
                     .read(true)
                     .truncate(true)
                     .open(&temp_path)
-                    .map_err(|e| format!("Failed to create temp file: {}", e))?;
+                    .map_err(|e| format!("Failed to create temp file: {e}"))?;
 
                 // Write task-specific data
-                let data = format!("Task {} data for completion demo", task_id);
+                let data = format!("Task {task_id} data for completion demo");
                 temp_file
                     .write_all(data.as_bytes())
-                    .map_err(|e| format!("Failed to write: {}", e))?;
+                    .map_err(|e| format!("Failed to write: {e}"))?;
                 temp_file
                     .sync_all()
-                    .map_err(|e| format!("Failed to sync: {}", e))?;
+                    .map_err(|e| format!("Failed to sync: {e}"))?;
 
                 let fd = temp_file.as_raw_fd();
 
@@ -277,11 +276,10 @@ async fn demonstrate_concurrent_operations(
                 let (bytes_read, _returned_buffer) = ring
                     .read_at_owned(fd, buffer, 0)
                     .await
-                    .map_err(|e| format!("Read failed: {}", e))?;
+                    .map_err(|e| format!("Read failed: {e}"))?;
 
                 println!(
-                    "   ✅ Task {} completed: {} bytes read",
-                    task_id, bytes_read
+                    "   ✅ Task {task_id} completed: {bytes_read} bytes read"
                 );
 
                 // Clean up
@@ -290,7 +288,7 @@ async fn demonstrate_concurrent_operations(
                 // Simulate work with different delays per task
                 let delay = Duration::from_millis(50 * (task_id as u64 + 1));
                 sleep(delay).await;
-                println!("   ✅ Task {} completed simulation", task_id);
+                println!("   ✅ Task {task_id} completed simulation");
             }
 
             Ok::<(), String>(())
@@ -303,9 +301,9 @@ async fn demonstrate_concurrent_operations(
     let start_time = Instant::now();
     for (task_id, task) in tasks.into_iter().enumerate() {
         match task.await {
-            Ok(Ok(())) => println!("   ✅ Task {} finished successfully", task_id),
-            Ok(Err(e)) => println!("   ❌ Task {} failed: {}", task_id, e),
-            Err(e) => println!("   ❌ Task {} panicked: {}", task_id, e),
+            Ok(Ok(())) => println!("   ✅ Task {task_id} finished successfully"),
+            Ok(Err(e)) => println!("   ❌ Task {task_id} failed: {e}"),
+            Err(e) => println!("   ❌ Task {task_id} panicked: {e}"),
         }
     }
 
@@ -337,7 +335,7 @@ async fn demonstrate_batch_operations(
         let mut file_data = Vec::new();
 
         for i in 0..batch_size {
-            let temp_path = format!("/tmp/safer_ring_batch_{}", i);
+            let temp_path = format!("/tmp/safer_ring_batch_{i}");
             let mut temp_file = OpenOptions::new()
                 .create(true)
                 .write(true)
@@ -345,7 +343,7 @@ async fn demonstrate_batch_operations(
                 .truncate(true)
                 .open(&temp_path)?;
 
-            let data = format!("Batch operation {} data", i);
+            let data = format!("Batch operation {i} data");
             temp_file.write_all(data.as_bytes())?;
             temp_file.sync_all()?;
 
@@ -353,13 +351,14 @@ async fn demonstrate_batch_operations(
             file_data.push(data);
         }
 
-        println!("   📝 Created {} files for batch operations", batch_size);
+        println!("   📝 Created {batch_size} files for batch operations");
 
         // Create batch of read operations using the modern API
         // Note: This demonstrates the concept - actual batch API may vary
         let mut batch_operations = Vec::new();
         let _buffers: Vec<OwnedBuffer> = Vec::new();
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..batch_size {
             let buffer = OwnedBuffer::new(config.buffer_size);
             let fd = temp_files[i].0.as_raw_fd();
@@ -369,7 +368,7 @@ async fn demonstrate_batch_operations(
             batch_operations.push(operation);
         }
 
-        println!("   ⚡ Created batch of {} read operations", batch_size);
+        println!("   ⚡ Created batch of {batch_size} read operations");
 
         // Execute all operations concurrently using join!
         let start_time = Instant::now();
@@ -409,26 +408,26 @@ async fn demonstrate_batch_operations(
         };
 
         let elapsed = start_time.elapsed();
-        println!("   ✅ Batch completed in {:?}", elapsed);
+        println!("   ✅ Batch completed in {elapsed:?}");
 
         // Process results
         for (i, result) in results.into_iter().enumerate() {
             match result {
                 Ok((bytes_read, returned_buffer)) => {
-                    println!("   📖 Operation {}: {} bytes read", i, bytes_read);
+                    println!("   📖 Operation {i}: {bytes_read} bytes read");
 
                     // Verify data
                     if let Some(guard) = returned_buffer.try_access() {
                         let read_data = String::from_utf8_lossy(&guard[..bytes_read]);
                         if read_data == file_data[i] {
-                            println!("   ✅ Operation {} data verified", i);
+                            println!("   ✅ Operation {i} data verified");
                         } else {
-                            println!("   ⚠️  Operation {} data mismatch", i);
+                            println!("   ⚠️  Operation {i} data mismatch");
                         }
                     }
                 }
                 Err(e) => {
-                    println!("   ❌ Operation {} failed: {}", i, e);
+                    println!("   ❌ Operation {i} failed: {e}");
                 }
             }
         }
@@ -444,7 +443,7 @@ async fn demonstrate_batch_operations(
             let delay = Duration::from_millis(100 + i as u64 * 10);
             async move {
                 sleep(delay).await;
-                println!("   ✅ Simulated operation {} completed", i);
+                println!("   ✅ Simulated operation {i} completed");
                 Ok::<(), Box<dyn std::error::Error>>(())
             }
         });
@@ -456,8 +455,7 @@ async fn demonstrate_batch_operations(
 
         let successful = results.iter().filter(|r| r.is_ok()).count();
         println!(
-            "   🏁 Batch simulation: {}/{} operations succeeded in {:?}",
-            successful, batch_size, elapsed
+            "   🏁 Batch simulation: {successful}/{batch_size} operations succeeded in {elapsed:?}"
         );
     }
 

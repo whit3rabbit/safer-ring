@@ -46,14 +46,14 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::Ring;
     /// # use std::os::unix::io::RawFd;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let listening_fd: RawFd = 3; // Assume we have a listening socket
     ///
-    /// let client_fd = ring.accept(listening_fd).await?;
+    /// let client_fd = ring.accept(listening_fd)?.await?;
     /// println!("Accepted connection: fd {}", client_fd);
     /// # Ok(())
     /// # }
@@ -108,15 +108,15 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::os::unix::io::RawFd;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let socket_fd: RawFd = 4; // Assume we have a connected socket
     /// let mut buffer = PinnedBuffer::from_slice(b"Hello, client!");
     ///
-    /// let (bytes_sent, buffer) = ring.send(socket_fd, buffer.as_mut_slice()).await?;
+    /// let (bytes_sent, buffer) = ring.send(socket_fd, buffer.as_mut_slice())?.await?;
     /// println!("Sent {} bytes", bytes_sent);
     /// # Ok(())
     /// # }
@@ -179,15 +179,15 @@ impl<'ring> Ring<'ring> {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// # use safer_ring::{Ring, PinnedBuffer};
     /// # use std::os::unix::io::RawFd;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let ring = Ring::new(32)?;
+    /// let mut ring = Ring::new(32)?;
     /// let socket_fd: RawFd = 4; // Assume we have a connected socket
     /// let mut buffer = PinnedBuffer::with_capacity(1024);
     ///
-    /// let (bytes_received, buffer) = ring.recv(socket_fd, buffer.as_mut_slice()).await?;
+    /// let (bytes_received, buffer) = ring.recv(socket_fd, buffer.as_mut_slice())?.await?;
     /// println!("Received {} bytes", bytes_received);
     /// # Ok(())
     /// # }

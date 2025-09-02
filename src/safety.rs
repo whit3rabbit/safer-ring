@@ -15,19 +15,19 @@
 //!
 //! # Example
 //!
+//! Safe operations are created automatically by the Ring when you submit I/O operations.
+//! The safety mechanisms work transparently:
+//!
 //! ```rust,no_run
-//! use safer_ring::safety::SafeOperation;
-//! use safer_ring::ownership::OwnedBuffer;
+//! use safer_ring::{Ring, ownership::OwnedBuffer};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut ring = Ring::new(32)?;
 //! let buffer = OwnedBuffer::new(1024);
 //!
-//! // Create a safe operation
-//! let operation = SafeOperation::new(buffer, 123);
-//!
-//! // If this future is dropped, the buffer stays with kernel
-//! let _future = operation.into_future();
-//! // drop(_future); // Safe - buffer ownership tracked
+//! // Safe operation created internally, handles cancellation automatically
+//! let (bytes, returned_buffer) = ring.read_at_owned(0, buffer, 0).await?;
+//! println!("Read {bytes} bytes safely");
 //!
 //! # Ok(())
 //! # }

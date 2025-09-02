@@ -37,7 +37,7 @@ pub mod linux {
             unsafe {
                 let entry = read_e.build().user_data(0x42);
                 self.ring.submission().push(&entry).map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "submission queue full")
+                    std::io::Error::other("submission queue full")
                 })?;
             }
 
@@ -68,7 +68,7 @@ pub mod linux {
             unsafe {
                 let entry = write_e.build().user_data(0x43);
                 self.ring.submission().push(&entry).map_err(|_| {
-                    std::io::Error::new(std::io::ErrorKind::Other, "submission queue full")
+                    std::io::Error::other("submission queue full")
                 })?;
             }
 

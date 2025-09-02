@@ -213,14 +213,11 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                         let mut futures = Vec::new();
                         for i in 0..10 {
                             let buffer = numa_support::allocate_numa_buffer(4096, node);
-                            let pinned_buffer = PinnedBuffer::new(buffer);
+                            let _pinned_buffer = PinnedBuffer::new(buffer);
                             // Use owned buffer for benchmarks to avoid lifetime issues
                             let owned_buffer = OwnedBuffer::new(4096);
-                            if let Ok(future) =
-                                ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
-                            {
-                                futures.push(future);
-                            }
+                            let future = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64);
+                            futures.push(future);
                         }
 
                         let results = futures::future::join_all(futures).await;
@@ -242,10 +239,8 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                     for i in 0..10 {
                         // Use owned buffer for benchmarks to avoid lifetime issues
                         let owned_buffer = OwnedBuffer::new(4096);
-                        if let Ok(future) = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
-                        {
-                            futures.push(future);
-                        }
+                        let future = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64);
+                        futures.push(future);
                     }
 
                     let results = futures::future::join_all(futures).await;
@@ -267,9 +262,8 @@ fn bench_numa_io_operations(c: &mut Criterion) {
                 // Use owned buffers to avoid lifetime issues
                 for i in 0..10 {
                     let owned_buffer = OwnedBuffer::new(4096);
-                    if let Ok(future) = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64) {
-                        futures.push(future);
-                    }
+                    let future = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64);
+                    futures.push(future);
                 }
 
                 let results = futures::future::join_all(futures).await;
@@ -288,7 +282,7 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
 
     if numa_nodes.len() > 1 {
         group.bench_function("numa_aware_concurrent", |b| {
-            let numa_pool = NumaBufferPool::new(100, 4096).unwrap();
+            let _numa_pool = NumaBufferPool::new(100, 4096).unwrap();
             let files: Vec<_> = (0..numa_nodes.len()).map(|_| setup_test_file()).collect();
 
             b.iter(|| {
@@ -303,11 +297,8 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                         for i in 0..10 {
                             // Use owned buffer to avoid lifetime issues
                             let owned_buffer = OwnedBuffer::new(4096);
-                            if let Ok(future) =
-                                ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
-                            {
-                                futures.push(future);
-                            }
+                            let future = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64);
+                            futures.push(future);
                         }
                     }
 
@@ -319,7 +310,7 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
     }
 
     group.bench_function("numa_unaware_concurrent", |b| {
-        let pool = BufferPool::new(200, 4096);
+        let _pool = BufferPool::new(200, 4096);
         let files: Vec<_> = (0..4).map(|_| setup_test_file()).collect();
 
         b.iter(|| {
@@ -333,10 +324,8 @@ fn bench_numa_concurrent_access(c: &mut Criterion) {
                     for i in 0..10 {
                         // Use owned buffer to avoid lifetime issues
                         let owned_buffer = OwnedBuffer::new(4096);
-                        if let Ok(future) = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64)
-                        {
-                            futures.push(future);
-                        }
+                        let future = ring.read_at_owned(fd, owned_buffer, (i * 4096) as u64);
+                        futures.push(future);
                     }
                 }
 
