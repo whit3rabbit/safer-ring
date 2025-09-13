@@ -1,5 +1,23 @@
 # Safer-Ring
 
+[![Crates.io](https://img.shields.io/crates/v/safer-ring.svg)](https://crates.io/crates/safer-ring) [![Docs.rs](https://docs.rs/safer-ring/badge.svg)](https://docs.rs/safer-ring/0.0.1) [![CI](https://github.com/whit3rabbit/safer-ring/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/whit3rabbit/safer-ring/actions/workflows/ci.yml) [![License](https://img.shields.io/github/license/whit3rabbit/safer-ring.svg)](LICENSE)
+
+## Install
+
+Run the following Cargo command in your project directory:
+
+```bash
+cargo add safer-ring
+```
+
+Or add the following line to your `Cargo.toml`:
+
+```toml
+safer-ring = "0.0.1"
+```
+
+Documentation: https://docs.rs/safer-ring/0.0.1
+
 Safer-Ring is a memory-safe Rust wrapper for Linux's `io_uring` that provides zero-cost abstractions while preventing common memory safety issues through compile-time guarantees.
 
 This library's core innovation is an ownership transfer model that transforms the "if it compiles, it might panic" problem of some `io_uring` crates into Rust's standard "if it compiles, it's memory safe" guarantee.
@@ -119,8 +137,27 @@ This library is ideal for building high-performance, I/O-bound applications on L
 Add `safer-ring` to your `Cargo.toml`:
 ```toml
 [dependencies]
-safer-ring = "0.1.0"
+safer-ring = "0.0.1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+### Auto-detect backend (portable)
+
+If you’re running across diverse environments (local, containers, CI), detect availability and see which backend will be used:
+
+```rust
+use safer_ring::runtime::{Runtime, Backend};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let rt = Runtime::auto_detect()?;
+    match rt.backend() {
+        Backend::IoUring => println!("Using io_uring backend"),
+        Backend::Epoll => println!("Using epoll fallback"),
+        Backend::Stub => println!("Using stub backend (non-Linux)"),
+    }
+    Ok(())
+}
 ```
 
 Here is a complete example of reading from a file using the recommended `OwnedBuffer` API.

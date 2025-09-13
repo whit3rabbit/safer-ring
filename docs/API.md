@@ -2,6 +2,20 @@
 
 This document provides a quick reference to the public API of `safer-ring`. It is organized by concept to help you find what you need quickly.
 
+## Checking io_uring Support
+
+Before using `safer-ring`, you may want to confirm whether your kernel supports io_uring. On Linux, `safer_ring::runtime` provides helpers:
+
+- Quick boolean check: `safer_ring::runtime::is_io_uring_available()`
+- Auto-select backend and inspect it:
+  - `let rt = safer_ring::runtime::Runtime::auto_detect()?;`
+  - `match rt.backend() { Backend::IoUring => ..., Backend::Epoll | Backend::Stub => ... }`
+
+Notes:
+- io_uring requires Linux 5.1+ and may be disabled by security policies (containers, seccomp, AppArmor).
+- On systems where io_uring is unavailable/restricted, use the epoll fallback via the runtime, or expect `Unsupported` errors from direct `Ring` construction.
+- Advanced probing is available on Linux via `advanced::FeatureDetector` (version-based) or `advanced::feature_detection::DirectProbeDetector` (kernel probe).
+
 The core safety principle of `safer-ring` is the **ownership transfer model ("hot potato" pattern)**. 
 
 > **🎯 CRITICAL: Always use OwnedBuffer with `*_owned` methods.** The `PinnedBuffer` API is fundamentally broken and cannot be used in real applications due to insurmountable lifetime constraints that prevent loops and buffer reuse.
@@ -10,14 +24,15 @@ For maximum safety, performance, and ease of use, you **must** use the `*_owned`
 
 ## Table of Contents
 
-1.  [**Core: `Ring`**](#ring---the-core-component) - The main entry point for all I/O.
-2.  [**Buffer Management**](#buffer-management) - `OwnedBuffer` (✅ Use This) & `PinnedBuffer` (❌ Broken - Educational Only).
-3.  [**Batch Operations**](#batch-operations---batchring-buf) - Submitting multiple operations at once.
-4.  [**Buffer Pooling**](#buffer-pooling---bufferpool) - Efficient buffer reuse.
-5.  [**Performance & Registration**](#performance--registration---registryring) - Advanced performance tuning.
-6.  [**Async Compatibility Layer**](#async-compatibility-layer) - For `tokio` integration.
-7.  [**Configuration**](#configuration---saferringconfig) - Customizing `Ring` behavior.
-8.  [**Error Handling**](#error-handling---saferringerror) - Understanding failure modes.
+1.  [**Check Support**](#checking-io_uring-support) - Verify io_uring availability.
+2.  [**Core: `Ring`**](#ring---the-core-component) - The main entry point for all I/O.
+3.  [**Buffer Management**](#buffer-management) - `OwnedBuffer` (✅ Use This) & `PinnedBuffer` (❌ Broken - Educational Only).
+4.  [**Batch Operations**](#batch-operations---batchring-buf) - Submitting multiple operations at once.
+5.  [**Buffer Pooling**](#buffer-pooling---bufferpool) - Efficient buffer reuse.
+6.  [**Performance & Registration**](#performance--registration---registryring) - Advanced performance tuning.
+7.  [**Async Compatibility Layer**](#async-compatibility-layer) - For `tokio` integration.
+8.  [**Configuration**](#configuration---saferringconfig) - Customizing `Ring` behavior.
+9.  [**Error Handling**](#error-handling---saferringerror) - Understanding failure modes.
 
 ---
 
@@ -37,79 +52,22 @@ The recommended safe APIs (`read_owned`, `write_owned`, `accept_safe`, `submit_b
 > - `.await` waits for the I/O to complete.
 > - The second `?` handles completion errors: `Future::Output -> Result<Success, Error>`.
 
-| Method | Description | Example Usage |
+| Method | Description | Example |
 | :--- | :--- | :--- |
-| `Ring::new(entries: u32)` | Creates a new `Ring` with a specified submission queue depth. Automatically detects the best backend. | `let mut ring = Ring::new(128)?;` |
-| `Ring::with_config(config: SaferRingConfig)` | Creates a new `Ring` with detailed custom configuration. | `let cfg = SaferRingConfig::low_latency();`<br>`let mut ring = Ring::with_config(cfg)?;` |
-| `read_owned(fd, buffer: OwnedBuffer)` | **(Recommended)** Safely reads from a file descriptor. Takes ownership of the buffer and returns it upon completion. | ```rust
-let buffer = OwnedBuffer::new(1024);
-let (bytes, buf) = ring.read_owned(fd, buffer).await?;
-``` |
-| `write_owned(fd, buffer: OwnedBuffer)` | **(Recommended)** Safely writes to a file descriptor. Takes ownership of the buffer and returns it upon completion. Note: writes up to the buffer's capacity; to write exactly N bytes, use `write_at_owned(fd, buffer, 0, N)`. | ```rust
-let buffer = OwnedBuffer::from_slice(b"data");
-let (bytes, buf) = ring.write_owned(fd, buffer).await?;
-``` |
-| `read_at_owned(fd, buffer: OwnedBuffer, offset: u64)` | **(Recommended)** Safely reads from a file descriptor at a specific offset. Perfect for file operations and the hot potato pattern. | ```rust
-let buffer = OwnedBuffer::new(1024);
-let (bytes, buf) = ring.read_at_owned(fd, buffer, 100).await?;
-// Can reuse the returned buffer
-let (bytes2, buf2) = ring.read_at_owned(fd, buf, 200).await?;
-``` |
-| `write_at_owned(fd, buffer: OwnedBuffer, offset: u64, len: usize)` | **(Recommended)** Safely writes to a file descriptor at a specific offset. Takes ownership and returns the buffer, making it perfect for file copy operations. | ```rust
-let buffer = OwnedBuffer::from_slice(b"Hello, world!");
-let (bytes, buf) = ring.write_at_owned(fd, buffer, 100, 13).await?;
-``` |
-| `accept_safe(listening_fd)` | Safely accepts a new network connection. Returns the new client file descriptor as reported by the kernel (CQE result). | ```rust
-// Assumes listen_fd is a valid listening socket
-let client_fd = ring.accept_safe(listen_fd).await?;
-``` |
-| `submit_batch_standalone(batch)` | **(Recommended for composition)** Submits a batch and returns a `StandaloneBatchFuture` that **does not** hold a borrow of the ring. Useful when composing batches with other operations on the same `Ring`. The future must be polled with `poll_with_ring`. | ```rust
-use std::future::poll_fn;
-let mut future = ring.submit_batch_standalone(batch)?;
-// `ring` can still be used here for other ops
-let res = poll_fn(|cx| {
-    future.poll_with_ring(&mut ring, cx)
-}).await?;
-``` |
-| `read(fd, buffer: Pin<&mut [u8]>)` | **(Advanced)** Low-level read using a pinned buffer slice.<br><br>⚠️ **Usage Note:** Returns a `Future` that holds a mutable borrow of the `Ring`. You **must** `.await` it immediately before making other calls on the same `Ring` to release the borrow. The `?.await?` pattern is recommended for robust error handling. | **Correct:**<br><br>```rust
-let (bytes, _) = ring.read(
-    fd, p_buf.as_mut_slice()
-)?.await?;
-```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
-// ERROR: `ring` is borrowed mutably by `future1`
-let future1 = ring.read(fd1, buf1)?;
-let future2 = ring.read(fd2, buf2)?;
-tokio::join!(future1, future2);
-``` |
-| `write(fd, buffer: Pin<&mut [u8]>)` | **(Advanced)** Low-level write using a pinned buffer slice.<br><br>⚠️ **Usage Note:** Returns a `Future` that holds a mutable borrow of the `Ring`. You **must** `.await` it immediately before making other calls on the same `Ring`. Use `?.await?` for robust error handling. | **Correct:**<br><br>```rust
-let (bytes, _) = ring.write(
-    fd, p_buf.as_mut_slice()
-)?.await?;
-```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
-let future1 = ring.write(fd1, buf1)?;
-let future2 = ring.write(fd2, buf2)?;
-tokio::join!(future1, future2);
-``` |
-| `send(fd, buffer: Pin<&mut [u8]>)` | **(Advanced)** Low-level send on a socket using a pinned buffer slice.<br><br>⚠️ **Usage Note:** Returns a `Future` that holds a mutable borrow of the `Ring`. You **must** `.await` it immediately before other calls on the same `Ring`. | **Correct:**<br><br>```rust
-let (sent, _) = ring.send(
-    sock_fd, p_buf.as_mut_slice()
-)?.await?;
-```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
-let f1 = ring.send(sock1, buf1)?;
-let f2 = ring.send(sock2, buf2)?;
-tokio::join!(f1, f2);
-``` |
-| `recv(fd, buffer: Pin<&mut [u8]>)` | **(Advanced)** Low-level receive on a socket using a pinned buffer slice.<br><br>⚠️ **Usage Note:** Returns a `Future` that holds a mutable borrow of the `Ring`. `.await` immediately to release the borrow before other calls. | **Correct:**<br><br>```rust
-let (n, _) = ring.recv(
-    sock_fd, p_buf.as_mut_slice()
-)?.await?;
-```<br><br><strong>Incorrect (will not compile):</strong><br><br>```rust
-let f1 = ring.recv(sock1, buf1)?;
-let f2 = ring.recv(sock2, buf2)?;
-tokio::join!(f1, f2);
-``` |
-| `get_buffer(size)` | Gets a ring-managed `OwnedBuffer` from an internal pool (or allocates one). | `let buffer = ring.get_buffer(4096)?;` |
-| `orphan_count()` | Returns the number of currently tracked "orphaned" operations (cancelled futures). Useful for monitoring. | `println!("Orphans: {}", ring.orphan_count());` |
+| `Ring::new(entries: u32)` | Creates a new `Ring` with a specified submission queue depth. | `let mut ring = Ring::new(128)?;` |
+| `Ring::with_config(config: SaferRingConfig)` | Creates a new `Ring` with detailed custom configuration. | `let cfg = SaferRingConfig::low_latency(); let mut ring = Ring::with_config(cfg)?;` |
+| `read_owned(fd, buffer: OwnedBuffer)` | Safely reads from a file descriptor, returning the buffer after completion. | `let (n, buf) = ring.read_owned(fd, buf).await?;` |
+| `write_owned(fd, buffer: OwnedBuffer)` | Safely writes to a file descriptor; returns the buffer. | `let (n, buf) = ring.write_owned(fd, buf).await?;` |
+| `read_at_owned(fd, buffer: OwnedBuffer, offset: u64)` | Safe positioned read with buffer ownership round‑trip. | `let (n, buf) = ring.read_at_owned(fd, buf, 100).await?;` |
+| `write_at_owned(fd, buffer: OwnedBuffer, offset: u64, len: usize)` | Safe positioned write; specify exact length. | `let (n, buf) = ring.write_at_owned(fd, buf, 100, len).await?;` |
+| `accept_safe(listening_fd)` | Safely accepts a new connection, returning client FD. | `let client = ring.accept_safe(listen_fd).await?;` |
+| `submit_batch_standalone(batch)` | Submit a batch returning a future that does not borrow the ring; poll via `poll_with_ring`. | `let mut fut = ring.submit_batch_standalone(batch)?;` |
+| `read(fd, Pin<&mut [u8]>)` | Advanced API. Returns a future that borrows the ring; `.await` immediately (use `?.await?`). | `let (n, _) = ring.read(fd, p.as_mut_slice())?.await?;` |
+| `write(fd, Pin<&mut [u8]>)` | Advanced API; must `.await` immediately (cannot hold multiple). | `let (n, _) = ring.write(fd, p.as_mut_slice())?.await?;` |
+| `send(fd, Pin<&mut [u8]>)` | Advanced socket send; `.await` immediately. | `let (n, _) = ring.send(fd, p.as_mut_slice())?.await?;` |
+| `recv(fd, Pin<&mut [u8]>)` | Advanced socket recv; `.await` immediately. | `let (n, _) = ring.recv(fd, p.as_mut_slice())?.await?;` |
+| `get_buffer(size)` | Acquire ring-managed `OwnedBuffer` from internal pool. | `let buf = ring.get_buffer(4096)?;` |
+| `orphan_count()` | Number of tracked orphaned operations. | `println!("{}", ring.orphan_count());` |
 
 ### Echo exactly the received bytes
 
@@ -245,14 +203,8 @@ Build a collection of operations to be submitted in a single syscall for high ef
 | Method | Description | Example Usage |
 | :--- | :--- | :--- |
 | `Batch::new()` | Creates a new, empty batch. | `let mut batch = Batch::new();` |
-| `add_operation(op: Operation<Building>)` | Adds a configured `Operation` to the batch. Returns the operation's index in the batch. | ```rust
-let mut p_buf = PinnedBuffer::with_capacity(1024);
-let read_op = Operation::read()
-    .fd(fd)
-    .buffer(p_buf.as_mut_slice());
-let read_idx = batch.add_operation(read_op)?;
-``` |
-| `add_dependency(dependent_idx, dep_idx)` | Specifies that one operation must complete before another starts. | `// Make write_idx depend on read_idx` <br> `batch.add_dependency(write_idx, read_idx)?;` |
+| `add_operation(op: Operation<Building>)` | Adds an operation; returns its index. | `let idx = batch.add_operation(op)?;` |
+| `add_dependency(dependent_idx, dep_idx)` | Ensure one operation completes before another. | `batch.add_dependency(write_idx, read_idx)?;` |
 
 ---
 
@@ -262,16 +214,9 @@ A thread-safe pool of `PinnedBuffer`s to reduce allocation overhead in high-thro
 
 | Method | Description | Example Usage |
 | :--- | :--- | :--- |
-| `BufferPool::new(capacity, buffer_size)` | Creates a new pool with a fixed number of pre-allocated buffers. | `let pool = BufferPool::new(100, 4096);` |
-| `get()` | Acquires a `PooledBuffer` from the pool. The buffer is automatically returned on drop. Returns `Option`. | ```rust
-if let Some(mut buffer) = pool.get() {
-    // buffer is a PooledBuffer, use it
-    let (bytes, _) = ring.read(
-        fd, buffer.as_mut_slice()
-    )?.await?;
-} // buffer is returned to pool here
-``` |
-| `stats()` | Returns a `PoolStats` struct with current usage metrics (available, in-use, utilization, etc.). | `let stats = pool.stats();`<br>`println!("In use: {}", stats.in_use_buffers);` |
+| `BufferPool::new(capacity, buffer_size)` | Creates a new pool with pre-allocated buffers. | `let pool = BufferPool::new(100, 4096);` |
+| `get()` | Acquire a `PooledBuffer` (returned to pool on drop). | `if let Some(mut b) = pool.get() { /* use b */ }` |
+| `stats()` | Pool usage metrics. | `let s = pool.stats(); println!("{}", s.in_use_buffers);` |
 
 ---
 
@@ -295,19 +240,10 @@ Integrate `safer-ring` with `tokio`'s `AsyncRead` and `AsyncWrite` traits. Imple
 
 | Method | Description | Example Usage |
 | :--- | :--- | :--- |
-| `ring.file(fd)` | Wraps a file descriptor in a `File` struct that implements `AsyncRead` and `AsyncWrite`. | ```rust
-use tokio::io::AsyncWriteExt;
-let mut file = ring.file(fd);
-file.write_all(b"data").await?;
-``` |
-| `ring.socket(fd)` | Wraps a socket descriptor in a `Socket` struct that implements `AsyncRead` and `AsyncWrite`. | ```rust
-use tokio::io::AsyncReadExt;
-let mut socket = ring.socket(fd);
-let mut buf = vec![0; 1024];
-let n = socket.read(&mut buf).await?;
-``` |
-| `ring.async_read(fd)` | Creates a standalone `AsyncReadAdapter` for a file descriptor. | `let mut reader = ring.async_read(fd);` |
-| `ring.async_write(fd)` | Creates a standalone `AsyncWriteAdapter` for a file descriptor. | `let mut writer = ring.async_write(fd);` |
+| `ring.file(fd)` | Wrap a file descriptor as `AsyncRead`/`AsyncWrite`. | `let mut f = ring.file(fd);` |
+| `ring.socket(fd)` | Wrap a socket as `AsyncRead`/`AsyncWrite`. | `let mut s = ring.socket(fd);` |
+| `ring.async_read(fd)` | Standalone `AsyncReadAdapter`. | `let mut r = ring.async_read(fd);` |
+| `ring.async_write(fd)` | Standalone `AsyncWriteAdapter`. | `let mut w = ring.async_write(fd);` |
 
 ---
 
